@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: PHP ${{ matrix.php }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.1', '8.2', '8.3']
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: curl, json, mbstring, sqlite3, pdo_sqlite
+          coverage: none
+          tools: composer:v2
+
+      - name: Validate composer.json
+        run: composer validate --strict
+
+      - name: Install dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: Lint every PHP file
+        run: find modules tests -name '*.php' -print0 | xargs -0 -n1 php -l
+
+      - name: Check the coding standard
+        run: vendor/bin/phpcs
+
+      - name: Run static analysis
+        run: vendor/bin/phpstan analyse --memory-limit=1G --no-progress
+
+      - name: Run the unit tests
+        run: vendor/bin/phpunit
+
+      # The SDK is meant to become a standalone package, so it must not depend on WHMCS.
+      - name: Keep the SDK free of WHMCS references
+        run: |
+          if grep -rnE 'WHMCS\\|Whmcs\\|Capsule|localAPI|logModuleCall|encrypt\(|decrypt\(' \
+            modules/servers/signnet/lib/ResellerApi; then
+            echo "::error::modules/servers/signnet/lib/ResellerApi must not reference WHMCS."
+            exit 1
+          fi
+
+      # CI logs are public, so a leak is reported by file and line, never by the key itself.
+      - name: Keep real Sign.net API keys out of the repository
+        run: |
+          leaks=$(git grep -nIE 'snk_(live|test)_[0-9a-f]{32}_[A-Za-z0-9]+' \
+            | grep -v '_0123456789abcdef0123456789abcdef_' | cut -d: -f1,2 || true)
+          if [ -n "$leaks" ]; then
+            echo "$leaks"
+            echo "::error::A Sign.net API key is committed above. Revoke it in the reseller console, then remove it."
+            exit 1
+          fi

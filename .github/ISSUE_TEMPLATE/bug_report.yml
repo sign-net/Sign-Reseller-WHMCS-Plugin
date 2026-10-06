@@ -1,0 +1,55 @@
+name: Bug report
+description: Something in the plugin does not work as its docs say.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This repository is public. Leave out API keys, tokens, passwords and customer details.
+        To report a vulnerability, use [Report a vulnerability](https://github.com/sign-net/Sign-Reseller-WHMCS-Plugin/security/advisories/new) instead.
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version
+      description: System Settings → Addon Modules shows it beside Sign.net Reseller.
+      placeholder: 1.1.0
+    validations:
+      required: true
+  - type: input
+    id: whmcs-version
+    attributes:
+      label: WHMCS version
+      placeholder: 8.13.1
+    validations:
+      required: true
+  - type: input
+    id: php-version
+    attributes:
+      label: PHP version
+      placeholder: "8.2"
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The exact message, including any “(request <id>)” at its end, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1.
+        2.
+    validations:
+      required: true
+  - type: textarea
+    id: module-log
+    attributes:
+      label: Module log
+      description: >-
+        The System Logs → Module Log entries around the failure, found by its request id. Keys and tokens
+        are masked, but read the entries first and remove customer names, email addresses and portal addresses.
+      render: text

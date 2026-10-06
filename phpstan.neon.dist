@@ -1,0 +1,12 @@
+includes:
+    - vendor/phpstan/phpstan-strict-rules/rules.neon
+
+parameters:
+    level: 8
+    phpVersion: 80100
+    paths:
+        - modules/servers/signnet/lib
+        - modules/servers/signnet/signnet.php
+        - modules/addons/signnet_reseller
+        - tests
+    tmpDir: build/phpstan

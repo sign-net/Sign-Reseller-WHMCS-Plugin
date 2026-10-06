@@ -1,0 +1,39 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: Attach the plugin zip
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the release
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Check the tag matches the plugin's version
+        run: |
+          version=$(sed -nE "s/.*PLUGIN = '([^']+)'.*/\1/p" modules/servers/signnet/lib/Whmcs/Version.php)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match Version::PLUGIN ($version); tag the release v$version."
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      # .gitattributes keeps tests and development tooling out of the archive.
+      - name: Build the zip
+        run: >-
+          git archive --format=zip --prefix="signnet-whmcs-plugin-$VERSION/"
+          --output="signnet-whmcs-plugin-$VERSION.zip" HEAD
+
+      - name: Attach it to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" "signnet-whmcs-plugin-$VERSION.zip" --repo "$GITHUB_REPOSITORY" --clobber

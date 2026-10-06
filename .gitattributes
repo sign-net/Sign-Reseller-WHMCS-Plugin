@@ -1,0 +1,13 @@
+* text=auto eol=lf
+
+# The release zip (git archive, and GitHub's source downloads) holds the plugin and its docs only.
+/.github            export-ignore
+/tests              export-ignore
+/.gitattributes     export-ignore
+/.gitignore         export-ignore
+/CLAUDE.md          export-ignore
+/composer.json      export-ignore
+/composer.lock      export-ignore
+/phpcs.xml.dist     export-ignore
+/phpstan.neon.dist  export-ignore
+/phpunit.xml.dist   export-ignore

@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<ruleset name="SignNet WHMCS plugin">
+    <description>PSR-12 for the plugin and its tests.</description>
+
+    <arg name="extensions" value="php"/>
+    <arg name="colors"/>
+    <arg value="sp"/>
+
+    <file>modules</file>
+    <file>tests</file>
+
+    <rule ref="PSR12"/>
+
+    <!-- The autoloader defines its double-registration guard and registers itself, the files WHMCS
+         loads refuse direct access and load the autoloader before declaring their functions, and the
+         test bootstrap defines WHMCS's constant before loading Composer. -->
+    <rule ref="PSR1.Files.SideEffects.FoundWithSymbols">
+        <exclude-pattern>modules/servers/signnet/lib/autoload\.php$</exclude-pattern>
+        <exclude-pattern>modules/servers/signnet/signnet\.php$</exclude-pattern>
+        <exclude-pattern>modules/addons/signnet_reseller/signnet_reseller\.php$</exclude-pattern>
+        <exclude-pattern>modules/addons/signnet_reseller/hooks\.php$</exclude-pattern>
+        <exclude-pattern>tests/bootstrap\.php$</exclude-pattern>
+    </rule>
+</ruleset>

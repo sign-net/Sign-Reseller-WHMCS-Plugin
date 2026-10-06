@@ -1,0 +1,18 @@
+name: Feature request
+description: Suggest something the plugin could do.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you are trying to do, and what stops you today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like
+      description: How the plugin could help. If you know it needs something from Sign.net's API, say what.
+    validations:
+      required: true
