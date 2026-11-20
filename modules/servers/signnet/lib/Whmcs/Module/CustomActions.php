@@ -101,7 +101,8 @@ final class CustomActions
 
     /**
      * Links the service to a portal that already exists: the one whose tenant id is in the
-     * service's Username field, or else whose hostname is in its Domain field.
+     * service's Username field, or else whose hostname is in its Domain field. The portal may have
+     * been made anywhere, for anyone, so the activity log names its owner.
      *
      * @param array<string, mixed> $params
      *
@@ -122,6 +123,7 @@ final class CustomActions
         if ($holder !== null) {
             return sprintf('That portal is linked to service #%d.', $holder->serviceId);
         }
+        $owner = $this->client->getPrivateLabel($label->tenantId)->owner;
         $link = $this->links->save($link->with([
             'tenantId' => $label->tenantId,
             'hostname' => $label->primaryHost,
@@ -131,10 +133,12 @@ final class CustomActions
             'lastError' => null,
         ]));
         WhmcsServices::showPortal($link);
-        logActivity(
-            sprintf('Sign.net: service #%d linked to the existing portal %s.', $serviceId, $link->hostname),
-            (int) ($params['userid'] ?? 0),
-        );
+        logActivity(sprintf(
+            'Sign.net: service #%d linked to the existing portal %s, %s.',
+            $serviceId,
+            $link->hostname,
+            $owner === null ? 'which has no owner account' : 'owned by ' . $owner->email,
+        ), (int) ($params['userid'] ?? 0));
 
         return ProvisionService::SUCCESS;
     }

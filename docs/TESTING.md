@@ -569,7 +569,8 @@ Click “Apply plan”.
 - [ ] Step 2 succeeds.
 - [ ] The Username becomes the console portal's tenant id.
 - [ ] The Sign.net fields show p02.
-- [ ] The activity log has “Sign.net: service #<id> linked to the existing portal p02.qa1.example.com.”
+- [ ] The activity log has “Sign.net: service #<id> linked to the existing portal p02.qa1.example.com, owned by
+  <owner>.”, where <owner> is the email address you gave the owner in F1.
 - [ ] Step 3 succeeds, and “Package” reads “QA Starter (QA1-START)”.
 
 **F3 · normal · When linking is refused**

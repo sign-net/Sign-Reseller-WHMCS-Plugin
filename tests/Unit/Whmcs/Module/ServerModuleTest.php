@@ -389,6 +389,7 @@ final class ServerModuleTest extends ModuleTestCase
         $this->insertService();
         $this->queueToken();
         $this->transport->queueData(R::labels([R::TENANT_ID => 'sign.acme.test']));
+        $this->transport->queueData(R::label());
 
         self::assertSame('success', signnet_linkPortal($this->params(['username' => R::TENANT_ID])));
 
@@ -396,6 +397,11 @@ final class ServerModuleTest extends ModuleTestCase
         self::assertNotNull($link);
         self::assertSame(R::TENANT_ID, $link->tenantId);
         self::assertSame('sign.acme.test', $link->hostname);
+        self::assertContains(
+            'Sign.net: service #101 linked to the existing portal sign.acme.test, owned by owner@acme.test.',
+            WhmcsFake::activityMessages(),
+            'A portal made elsewhere may belong to someone other than the client.',
+        );
     }
 
     #[Test]
@@ -404,9 +410,39 @@ final class ServerModuleTest extends ModuleTestCase
         $this->insertService();
         $this->queueToken();
         $this->transport->queueData(R::labels([R::TENANT_ID => 'sign.acme.test']));
+        $this->transport->queueData(R::label());
 
         self::assertSame('success', signnet_linkPortal($this->params(['domain' => 'Sign.Acme.test'])));
         self::assertSame(R::TENANT_ID, $this->links->find(self::SERVICE_ID)?->tenantId);
+    }
+
+    #[Test]
+    public function linkExistingPortalSaysWhenThePortalHasNoOwner(): void
+    {
+        $this->insertService();
+        $this->queueToken();
+        $this->transport->queueData(R::labels([R::TENANT_ID => 'sign.acme.test']));
+        $this->transport->queueData(R::label(['owner' => null]));
+
+        self::assertSame('success', signnet_linkPortal($this->params(['username' => R::TENANT_ID])));
+        self::assertContains(
+            'Sign.net: service #101 linked to the existing portal sign.acme.test, which has no owner account.',
+            WhmcsFake::activityMessages(),
+        );
+    }
+
+    #[Test]
+    public function linkExistingPortalChangesNothingWhenThePortalCannotBeRead(): void
+    {
+        $this->insertService();
+        $this->queueToken();
+        $this->transport->queueData(R::labels([R::TENANT_ID => 'sign.acme.test']));
+        $this->transport->queueError(500, 'internal_server_error');
+
+        $result = signnet_linkPortal($this->params(['username' => R::TENANT_ID]));
+
+        self::assertStringStartsWith('Sign.net could not complete the request (HTTP 500).', $result);
+        self::assertNull($this->links->find(self::SERVICE_ID));
     }
 
     #[Test]
