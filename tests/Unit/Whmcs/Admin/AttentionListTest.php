@@ -78,6 +78,32 @@ final class AttentionListTest extends DatabaseTestCase
     }
 
     #[Test]
+    public function itListsLivePortalsWhoseServiceWhmcsHasEnded(): void
+    {
+        $this->service(112, 'Cancelled', self::live('t-112'));
+        $this->service(113, 'Terminated', self::live('t-113', ['state' => ServiceLink::STATE_SUSPENDED]));
+        $this->service(114, 'Fraud', self::live('t-114'));
+
+        $items = (new AttentionList())->build([
+            self::label('t-112', TenantStatus::ACTIVE),
+            self::label('t-113', TenantStatus::SUSPENDED),
+            self::label('t-114', TenantStatus::ACTIVE),
+        ], []);
+
+        self::assertSame([
+            '#112 Cancelled in WHMCS, live in Sign.net',
+            '#113 Terminated in WHMCS, live in Sign.net',
+            '#114 Fraud in WHMCS, live in Sign.net',
+        ], self::summaries($items));
+        self::assertSame(
+            ['The portal was not deleted, so you are still billed for its package, and its users can sign in unless '
+                . 'it is suspended. Run Terminate on the service to delete it.'],
+            $items[0]->details,
+        );
+        self::assertSame('clientsservices.php?userid=7&id=114', $items[2]->serviceUrl());
+    }
+
+    #[Test]
     public function itListsLivePortalsWhoseServiceWasDeleted(): void
     {
         $this->service(108, null, self::live('t-108', ['lastError' => 'WHMCS service #108 was deleted, but ...']));

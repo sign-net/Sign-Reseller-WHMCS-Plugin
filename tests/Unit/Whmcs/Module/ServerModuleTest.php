@@ -190,6 +190,22 @@ final class ServerModuleTest extends ModuleTestCase
     }
 
     #[Test]
+    public function theAdminTabSaysWhenWhmcsHasEndedAServiceWhosePortalIsLive(): void
+    {
+        $this->insertService(self::SERVICE_ID, 'Fraud');
+        $this->linkPortal();
+        $this->queueToken();
+        $this->transport->queueData(R::label(self::ACTIVE));
+
+        $fields = signnet_AdminServicesTabFields($this->params());
+
+        self::assertStringContainsString(
+            'WHMCS shows this service Fraud, but the portal still exists.',
+            $fields['Needs attention'],
+        );
+    }
+
+    #[Test]
     public function aDeletedPortalIsShownWithoutAskingSignNet(): void
     {
         $this->insertService(self::SERVICE_ID, 'Terminated');

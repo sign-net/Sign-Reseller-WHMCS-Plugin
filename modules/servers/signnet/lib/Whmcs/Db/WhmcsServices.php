@@ -11,6 +11,9 @@ use WHMCS\Database\Capsule;
  */
 final class WhmcsServices
 {
+    /** WHMCS's statuses for a service it has ended and no longer bills. */
+    public const ENDED_STATUSES = ['Cancelled', 'Terminated', 'Fraud'];
+
     /**
      * WHMCS's status for the service (Pending, Active, Suspended, Terminated, ...), or null when
      * the service no longer exists.

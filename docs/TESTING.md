@@ -57,7 +57,7 @@ Use these values, so the messages you see match this guide.
 |---|---|
 | Your own packages | `QA1-START` “QA Starter”: Monthly, base price 19.00, Documents 100, Seats 5, Templates 3.<br>`QA1-PRO` “QA Pro”: Monthly, base price 49.00, Documents 500, Seats 20, Templates 10, Notarisations 20. |
 | Add-on | `QA1-SEATS` “5 extra seats”: Monthly, 5.00 per unit, grants Seats 5. |
-| Portal addresses | `p01.qa1-dns.example.com` for the first portal (C2). Then `p02.qa1.example.com` to `p10.qa1.example.com`, as each case says. Only p01 needs DNS. |
+| Portal addresses | `p01.qa1-dns.example.com` for the first portal (C2). Then `p02.qa1.example.com` to `p11.qa1.example.com`, as each case says. Only p01 needs DNS. |
 
 ### On Sign.net staging
 
@@ -677,6 +677,21 @@ Run “Terminate” on the same service again.
   - the module's answer to the cron's Terminate, in WHMCS's module queue, is “Not deleted: this product never
     deletes a Sign.net portal automatically. An administrator can terminate it from the service page.”
 - [ ] Step 3 deletes it.
+
+**G8 · normal · A live portal whose WHMCS service has ended**
+
+1. Order and pay QA Starter on `p11.qa1.example.com`.
+2. On its service page, set Status to “Fraud” and save. Changing the status by hand runs no module command, so
+   the portal is left as it is.
+3. Open Addons → Sign.net Reseller → Dashboard.
+4. On the service, run Module Commands → “Terminate” and confirm.
+
+- [ ] After step 2, the service's “Needs attention” says “WHMCS shows this service Fraud, but the portal still
+  exists.”
+- [ ] After step 3, “Needs attention” lists “Fraud in WHMCS, live in Sign.net”, with “The portal was not deleted,
+  so you are still billed for its package, and its users can sign in unless it is suspended. Run Terminate on
+  the service to delete it.”
+- [ ] Step 4 deletes the portal, and the Dashboard no longer lists the service.
 
 ### H. The allowance
 

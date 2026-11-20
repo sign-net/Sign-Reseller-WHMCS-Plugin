@@ -10,13 +10,15 @@ use SignNet\Whmcs\Admin\AddonConfig;
 use SignNet\Whmcs\Db\Rows;
 use SignNet\Whmcs\Db\Schema;
 use SignNet\Whmcs\Db\ServiceLink;
+use SignNet\Whmcs\Db\WhmcsServices;
 use SignNet\Whmcs\Support\Settings;
 use WHMCS\Database\Capsule;
 
 /**
  * What needs an administrator: orders held over the allowance, provisioning that failed or is in
- * doubt, portal addresses not attached, WHMCS and Sign.net disagreeing about a portal, live portals
- * whose WHMCS service is gone, and addon settings new portals ignore.
+ * doubt, portal addresses not attached, WHMCS and Sign.net disagreeing about a portal (a service
+ * WHMCS has ended among them), live portals whose WHMCS service is gone, and addon settings new
+ * portals ignore.
  *
  * @phpstan-type Service array{clientId: int, status: string}
  * @phpstan-type Statuses array<array-key, string>
@@ -147,6 +149,13 @@ final class AttentionList
                 $service,
                 'Suspended in WHMCS, active in Sign.net',
                 ['The portal still opens for its users.'],
+            ),
+            in_array($service['status'], WhmcsServices::ENDED_STATUSES, true) => self::item(
+                $link,
+                $service,
+                sprintf('%s in WHMCS, live in Sign.net', $service['status']),
+                ['The portal was not deleted, so you are still billed for its package, and its users can sign in '
+                    . 'unless it is suspended. Run Terminate on the service to delete it.'],
             ),
             default => null,
         };
