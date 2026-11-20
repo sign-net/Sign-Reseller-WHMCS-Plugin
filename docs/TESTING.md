@@ -57,7 +57,7 @@ Use these values, so the messages you see match this guide.
 |---|---|
 | Your own packages | `QA1-START` “QA Starter”: Monthly, base price 19.00, Documents 100, Seats 5, Templates 3.<br>`QA1-PRO` “QA Pro”: Monthly, base price 49.00, Documents 500, Seats 20, Templates 10, Notarisations 20. |
 | Add-on | `QA1-SEATS` “5 extra seats”: Monthly, 5.00 per unit, grants Seats 5. |
-| Portal addresses | `p01.qa1-dns.example.com` for the first portal (C2). Then `p02.qa1.example.com` to `p09.qa1.example.com`, as each case says. Only p01 needs DNS. |
+| Portal addresses | `p01.qa1-dns.example.com` for the first portal (C2). Then `p02.qa1.example.com` to `p10.qa1.example.com`, as each case says. Only p01 needs DNS. |
 
 ### On Sign.net staging
 
@@ -731,6 +731,21 @@ Run “Terminate” on the p06 service.
   add-ons. (service #<id>)”.
 - [ ] After step 3, “Package” still reads “QA Starter (QA1-START)”, with “Add-ons: QA1-SEATS × 1”.
 - [ ] After step 4, Documents' “Remaining” is R again.
+
+**H6 · high · An approval covers one run**
+
+1. As the test client, order QA Starter on `p10.qa1.example.com` and pay.
+2. On its service, change the product to QA Huge and save. Run “Change Package”.
+3. On the addon's Packages page, click “Archive” on QA1-HUGE.
+4. On the service, click “Approve over-allowance & retry”.
+5. Click “Activate” on QA1-HUGE. On the service, run “Change Package” again.
+6. Terminate p10.
+
+- [ ] Step 2 is held, with the same message as H5's step 2.
+- [ ] Step 4 answers “The package QA1-HUGE is archived in Sign.net.”
+- [ ] Step 5 is held again, with the same message: the run in step 4 used the approval up, although it failed.
+- [ ] After step 5, “Package” still reads “QA Starter (QA1-START)”.
+- [ ] After step 6, Documents' “Remaining” is R again.
 
 ### I. Logs and safety
 

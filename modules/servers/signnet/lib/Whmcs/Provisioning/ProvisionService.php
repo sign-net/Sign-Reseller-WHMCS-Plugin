@@ -103,7 +103,8 @@ final class ProvisionService
     }
 
     /**
-     * Lets the service's next run go past the allowance, once.
+     * Lets the service's next run go past the allowance. That run uses the approval up, whether it
+     * succeeds, fails or is held again, so a later change of plan is never confirmed with it.
      */
     public function approveOverAllowance(int $serviceId): void
     {
@@ -508,6 +509,7 @@ final class ProvisionService
         $this->links->save($link->with([
             'packageState' => ServiceLink::PACKAGE_HELD,
             'heldWarnings' => $lines,
+            'approvedAt' => null,
             'lastError' => $message,
         ]));
         logActivity(
@@ -520,7 +522,7 @@ final class ProvisionService
 
     private function fail(ServiceLink $link, string $message): string
     {
-        $this->links->save($link->with(['lastError' => $message]));
+        $this->links->save($link->with(['approvedAt' => null, 'lastError' => $message]));
 
         return $message;
     }

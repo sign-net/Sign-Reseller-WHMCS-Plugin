@@ -139,6 +139,78 @@ final class ProvisionServiceTest extends ModuleTestCase
     }
 
     #[Test]
+    public function anApprovedChangeThatFailsUsesTheApprovalUp(): void
+    {
+        $this->saveHeldPortal();
+        $this->service()->approveOverAllowance(self::SERVICE_ID);
+        $this->queueToken();
+        $this->transport->queueData(R::assignment('pkg-1'));
+        $this->transport->queueData(R::package('pkg-2', active: false));
+
+        $failed = $this->service()->applyPlan($this->params(['configoption1' => 'pkg-2']));
+
+        self::assertSame('The package PKG-2 is archived in Sign.net.', $failed);
+        self::assertNull($this->link()->approvedAt, 'An approval covers one run, whatever its outcome.');
+
+        $this->transport->queueData(R::assignment('pkg-1'));
+        $this->transport->queueData(R::package('pkg-3'));
+        $this->transport->queueData(['outcome' => 'Unassigned']);
+        $this->transport->queueData(R::confirmationRequired('k-9'));
+        $this->transport->queueData(R::assigned('asg-3'));
+
+        $later = $this->service()->applyPlan($this->params(['configoption1' => 'pkg-3']));
+
+        self::assertStringStartsWith(ProvisionService::HELD_PREFIX, $later, 'A later change is held again.');
+        self::assertSame(
+            [['packageId' => 'pkg-3'], ['packageId' => 'pkg-1']],
+            array_map(self::bodyOf(...), $this->requestsTo('POST ' . self::PACKAGE_OF_TENANT)),
+            'Nothing was confirmed past the allowance, and the old package was put back.',
+        );
+    }
+
+    #[Test]
+    public function anApprovedChangeHeldAgainUsesTheApprovalUp(): void
+    {
+        $this->saveHeldPortal();
+        $this->service()->approveOverAllowance(self::SERVICE_ID);
+        $this->queueToken();
+        $this->transport->queueData(R::assignment('pkg-1'));
+        $this->transport->queueData(R::package('pkg-2'));
+        $this->transport->queueData(['outcome' => 'Unassigned']);
+        $this->transport->queueData(R::confirmationRequired('k-1'));
+        $this->transport->queueData(R::confirmationRequired('k-2'));
+        $this->transport->queueData(R::assigned('asg-3'));
+
+        $result = $this->service()->applyPlan($this->params(['configoption1' => 'pkg-2']));
+
+        self::assertStringStartsWith(ProvisionService::HELD_PREFIX, $result);
+        $link = $this->link();
+        self::assertSame(ServiceLink::PACKAGE_HELD, $link->packageState);
+        self::assertNull($link->approvedAt, 'Sign.net\'s numbers moved since the approval, so it needs a new one.');
+    }
+
+    #[Test]
+    public function anApprovedOrderSignNetRefusesIsCheckedAgainstTheAllowanceNextTime(): void
+    {
+        $this->links->save(new ServiceLink(self::SERVICE_ID, $this->serverId, approvedAt: time()));
+        $this->queueToken();
+        $this->transport->queueError(400, 'invalid_request');
+
+        $refused = $this->service()->create($this->params());
+
+        self::assertStringStartsWith('Sign.net refused the portal\'s details', $refused);
+        self::assertNull($this->link()->approvedAt);
+
+        $this->transport->queueData(R::quota(['seats' => 4]));
+        $this->transport->queueData(R::package('pkg-1', ['seats' => 10]));
+
+        $next = $this->service()->create($this->params());
+
+        self::assertStringStartsWith(ProvisionService::HELD_PREFIX, $next);
+        self::assertCount(1, $this->requestsTo(R::PROVISION_CALL));
+    }
+
+    #[Test]
     public function itConfirmsOverTheAllowanceWhenTheProductSaysSo(): void
     {
         $this->queueToken();
@@ -981,6 +1053,21 @@ final class ProvisionServiceTest extends ModuleTestCase
         $this->transport->queueData(R::quota());
         $this->transport->queueData(R::package());
         $this->transport->queueData(R::provisioned(R::assigned()));
+    }
+
+    /**
+     * Service 101's portal on pkg-1, with a change of plan held over the allowance.
+     */
+    private function saveHeldPortal(): void
+    {
+        $this->links->save(new ServiceLink(
+            self::SERVICE_ID,
+            $this->serverId,
+            R::TENANT_ID,
+            'sign.acme.test',
+            state: ServiceLink::STATE_ACTIVE,
+            packageState: ServiceLink::PACKAGE_HELD,
+        ));
     }
 
     /**

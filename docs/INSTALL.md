@@ -140,7 +140,7 @@ suspended. The fields refresh at most once a minute; **Refresh from Sign.net** r
 | Button | Use it when |
 |---|---|
 | **Apply plan** | The portal's package or add-ons don't match the service, for example after changing the product's package. |
-| **Approve over-allowance & retry** | An order is held over your allowance and you want it to go ahead. The approval covers one run. |
+| **Approve over-allowance & retry** | An order is held over your allowance and you want it to go ahead. The approval covers only the run it starts: if that run fails or is held again, approve again. |
 | **Retry domain attach** | The domain shows *Not attached*. |
 | **Resend owner invite** | The owner's set-password link expired. Sign.net sends at most one every five minutes. |
 | **Link existing portal** | The portal already exists in Sign.net, for example one you made in the reseller console. Put its tenant id in the service's *Username* field, or its address in *Domain*, save, then click. The activity log names the portal's owner, so you can check it is the client's: linking does not change the owner. |
