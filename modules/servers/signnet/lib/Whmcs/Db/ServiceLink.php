@@ -48,6 +48,9 @@ final class ServiceLink
      * @param int|null                    $suspendAttemptAt When the first of the service's suspend calls whose
      *     answer never arrived was sent; null once Sign.net answers one. Such a call may have suspended
      *     the portal, so a suspension that began since then can be WHMCS's own.
+     * @param int|null                    $whmcsSuspendedAt When the suspension WHMCS's own call made began, in
+     *     milliseconds as Sign.net gives it, while the portal holds it; null otherwise, and for a suspension
+     *     an earlier version of the plugin recorded.
      */
     public function __construct(
         public readonly int $serviceId,
@@ -69,6 +72,7 @@ final class ServiceLink
         public readonly ?int $suspendedOutsideAt = null,
         public readonly ?int $orderId = null,
         public readonly ?int $suspendAttemptAt = null,
+        public readonly ?int $whmcsSuspendedAt = null,
     ) {
     }
 
@@ -94,21 +98,44 @@ final class ServiceLink
         return $orderId === null || $this->orderId === null || $this->orderId === $orderId;
     }
 
-    /**
-     * The link once Sign.net says whether its portal is suspended. A suspension the link does not
-     * already hold as WHMCS's own was made outside WHMCS.
-     */
-    public function withPortalSuspension(bool $isSuspended): self
+    /** The link once Sign.net reports its portal not suspended. */
+    public function withoutSuspension(): self
     {
-        if (!$isSuspended) {
-            return $this->with(['state' => self::STATE_ACTIVE, 'suspendedOutsideAt' => null]);
-        }
-        $isWhmcss = $this->state === self::STATE_SUSPENDED && $this->suspendedOutsideAt === null;
+        return $this->with(['state' => self::STATE_ACTIVE, 'suspendedOutsideAt' => null, 'whmcsSuspendedAt' => null]);
+    }
 
+    /**
+     * The link holding the suspension WHMCS's own call made, which began at $startedAt (milliseconds, as
+     * Sign.net gives it; null when it gave none).
+     */
+    public function withWhmcsSuspension(?int $startedAt): self
+    {
         return $this->with([
             'state' => self::STATE_SUSPENDED,
-            'suspendedOutsideAt' => $isWhmcss ? null : ($this->suspendedOutsideAt ?? time()),
+            'suspendedOutsideAt' => null,
+            'whmcsSuspendedAt' => $startedAt,
         ]);
+    }
+
+    /** The link holding a suspension WHMCS did not make, which WHMCS never lifts on its own. */
+    public function withOutsideSuspension(): self
+    {
+        return $this->with([
+            'state' => self::STATE_SUSPENDED,
+            'suspendedOutsideAt' => $this->suspendedOutsideAt ?? time(),
+            'whmcsSuspendedAt' => null,
+        ]);
+    }
+
+    /**
+     * Whether the link holds WHMCS's own suspension without knowing when it began, as a link an earlier
+     * version of the plugin suspended does.
+     */
+    public function holdsUnrecordedWhmcsSuspension(): bool
+    {
+        return $this->state === self::STATE_SUSPENDED
+            && $this->suspendedOutsideAt === null
+            && $this->whmcsSuspendedAt === null;
     }
 
     /** @param array<string, mixed> $changes property name => new value */
@@ -142,6 +169,7 @@ final class ServiceLink
             'suspended_outside_at' => $this->suspendedOutsideAt,
             'order_id' => $this->orderId,
             'suspend_attempt_at' => $this->suspendAttemptAt,
+            'whmcs_suspended_at' => $this->whmcsSuspendedAt,
         ];
     }
 
@@ -171,6 +199,7 @@ final class ServiceLink
             suspendedOutsideAt: self::nullableInt($row['suspended_outside_at'] ?? null),
             orderId: self::nullableInt($row['order_id'] ?? null),
             suspendAttemptAt: self::nullableInt($row['suspend_attempt_at'] ?? null),
+            whmcsSuspendedAt: self::nullableInt($row['whmcs_suspended_at'] ?? null),
         );
     }
 

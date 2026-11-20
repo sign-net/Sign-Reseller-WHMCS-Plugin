@@ -9,6 +9,8 @@ use SignNet\Tests\Support\ModuleTestCase;
 use SignNet\Tests\Support\SignNetResponses as R;
 use SignNet\Tests\Support\WhmcsFake;
 use SignNet\Tests\Unit\ResellerApi\ApiFixtures;
+use SignNet\Whmcs\Admin\Dashboard\AttentionItem;
+use SignNet\Whmcs\Admin\Dashboard\AttentionList;
 use SignNet\Whmcs\Db\Cache;
 use SignNet\Whmcs\Db\ServiceLink;
 use SignNet\Whmcs\Db\ServiceRepository;
@@ -337,11 +339,54 @@ final class ServerModuleTest extends ModuleTestCase
     {
         $this->insertService(self::SERVICE_ID, 'Suspended');
         $this->linkPortal(ServiceLink::STATE_SUSPENDED);
+        $this->holdWhmcsSuspensionSince(ApiFixtures::CREATED_AT + 1000);
         $this->queueToken();
         $this->transport->queueData(R::label());
 
         self::assertSame('success', signnet_refresh($this->params()));
         self::assertNull($this->links->find(self::SERVICE_ID)?->suspendedOutsideAt);
+    }
+
+    #[Test]
+    public function refreshRecordsASuspensionThatTookThePlaceOfWhmcssAsMadeOutsideWhmcs(): void
+    {
+        $this->insertService(self::SERVICE_ID, 'Suspended');
+        $this->linkPortal(ServiceLink::STATE_SUSPENDED);
+        $this->holdWhmcsSuspensionSince(ApiFixtures::CREATED_AT + 1000);
+        $this->queueToken();
+        $this->transport->queueData(R::label(['suspendedAt' => ApiFixtures::CREATED_AT + 9000]));
+
+        self::assertSame('success', signnet_refresh($this->params()));
+        $link = $this->links->find(self::SERVICE_ID);
+        self::assertNotNull($link?->suspendedOutsideAt, 'The console lifted WHMCS\'s and suspended again.');
+        $problems = array_map(
+            static fn (AttentionItem $item): string => $item->problem,
+            (new AttentionList())->build(null, []),
+        );
+        self::assertSame(['Suspended outside WHMCS'], $problems);
+    }
+
+    #[Test]
+    public function refreshTellsAnEarlierVersionsSuspensionByWhmcssReason(): void
+    {
+        $this->insertService(self::SERVICE_ID, 'Suspended');
+        $this->linkPortal(ServiceLink::STATE_SUSPENDED);
+        $this->queueToken();
+        $this->transport->queueData(R::label(['suspendReason' => 'Overdue on Payment']));
+        $this->transport->queueData(R::label(['suspendReason' => 'Abuse']));
+
+        Capsule::table('tblhosting')->where('id', self::SERVICE_ID)->update(['suspendreason' => 'Overdue on Payment']);
+        signnet_refresh($this->params());
+        $whmcss = $this->links->find(self::SERVICE_ID);
+        $this->linkPortal(ServiceLink::STATE_SUSPENDED);
+        signnet_refresh($this->params());
+
+        self::assertSame(
+            [null, ApiFixtures::CREATED_AT + 1000],
+            [$whmcss?->suspendedOutsideAt, $whmcss?->whmcsSuspendedAt],
+            'Its start is recorded once it is known to be WHMCS\'s.',
+        );
+        self::assertNotNull($this->links->find(self::SERVICE_ID)?->suspendedOutsideAt);
     }
 
     #[Test]
@@ -357,6 +402,16 @@ final class ServerModuleTest extends ModuleTestCase
 
         self::assertStringStartsWith('Not unsuspended: the portal was suspended outside WHMCS', $result);
         self::assertSame([], $this->calls());
+    }
+
+    /**
+     * Records on service 101's link that WHMCS's own suspension began at $startedAt (milliseconds).
+     */
+    private function holdWhmcsSuspensionSince(int $startedAt): void
+    {
+        $link = $this->links->find(self::SERVICE_ID);
+        self::assertNotNull($link);
+        $this->links->save($link->withWhmcsSuspension($startedAt));
     }
 
     #[Test]

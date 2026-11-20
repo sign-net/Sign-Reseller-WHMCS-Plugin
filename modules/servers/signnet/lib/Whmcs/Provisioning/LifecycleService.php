@@ -56,7 +56,7 @@ final class LifecycleService
         $sentAt = $link->suspendAttemptAt ?? time();
         $this->links->save($link->with(['suspendAttemptAt' => $sentAt]));
         try {
-            [$suspension, $reasonGiven] = $this->suspendWithReason((string) $link->tenantId, $reason, $clientId);
+            [$answer, $reasonGiven] = $this->suspendWithReason((string) $link->tenantId, $reason, $clientId);
         } catch (ApiException $exception) {
             if (!self::mayHaveArrived($exception)) {
                 $this->links->save($link);
@@ -64,9 +64,10 @@ final class LifecycleService
 
             return ErrorText::describe($exception);
         }
+        $suspension = PortalSuspension::of($answer) ?? new PortalSuspension(null, false, $reasonGiven);
         $suspended = self::isMadeByTheCall($suspension, $reasonGiven, $sentAt)
-            ? $link->with(['state' => ServiceLink::STATE_SUSPENDED, 'suspendedOutsideAt' => null])
-            : $link->withPortalSuspension(true);
+            ? $link->withWhmcsSuspension($suspension->startedAt)
+            : WhmcsSuspension::observe($link, $suspension);
         $this->links->save($suspended->with(['suspendAttemptAt' => null, 'lastError' => null]));
         logActivity(sprintf(
             $suspended->suspendedOutsideAt === null
@@ -114,15 +115,16 @@ final class LifecycleService
     }
 
     /**
-     * Whether the suspension Sign.net answered with is one a suspend call of this service made: it has
-     * the reason the call gave, and did not begin before $sentAt, when the first of the service's suspend
-     * calls still unanswered was sent.
+     * Whether the suspension Sign.net answered with is one a suspend call of this service made: it is
+     * the reseller's, it has the reason the call gave, and it did not begin before $sentAt, when the
+     * first of the service's suspend calls still unanswered was sent.
      */
-    private static function isMadeByTheCall(SuspensionState $suspension, string $reason, int $sentAt): bool
+    private static function isMadeByTheCall(PortalSuspension $suspension, string $reason, int $sentAt): bool
     {
-        $beganAt = $suspension->suspendedAt === null ? $sentAt : intdiv($suspension->suspendedAt, 1000);
+        $beganAt = $suspension->startedAt === null ? $sentAt : intdiv($suspension->startedAt, 1000);
 
-        return SuspensionReason::trimmed((string) $suspension->suspendReason) === $reason
+        return !$suspension->isSignNets
+            && $suspension->reason === $reason
             && $beganAt >= $sentAt - self::CLOCK_SKEW_SECONDS;
     }
 
@@ -153,7 +155,7 @@ final class LifecycleService
         } catch (ApiException $exception) {
             return ErrorText::describe($exception);
         }
-        $this->links->save($link->withPortalSuspension(false)->with(['lastError' => null]));
+        $this->links->save($link->withoutSuspension()->with(['lastError' => null]));
         logActivity(sprintf(
             'Sign.net: portal %s unsuspended for service #%d%s.',
             $link->hostname,

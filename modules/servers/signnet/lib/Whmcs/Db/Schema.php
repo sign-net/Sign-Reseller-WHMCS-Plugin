@@ -56,6 +56,7 @@ final class Schema
                 $table->unsignedInteger('suspended_outside_at')->nullable();
                 $table->integer('order_id')->nullable();
                 $table->unsignedInteger('suspend_attempt_at')->nullable();
+                $table->unsignedBigInteger('whmcs_suspended_at')->nullable();
                 $table->index(['server_id', 'hostname']);
             });
         }
@@ -69,6 +70,10 @@ final class Schema
         // When a suspend call whose answer never arrived was first sent.
         self::addColumn(self::SERVICES, 'suspend_attempt_at', static function (Blueprint $table): void {
             $table->unsignedInteger('suspend_attempt_at')->nullable();
+        });
+        // When the suspension WHMCS made began, in milliseconds as Sign.net gives it.
+        self::addColumn(self::SERVICES, 'whmcs_suspended_at', static function (Blueprint $table): void {
+            $table->unsignedBigInteger('whmcs_suspended_at')->nullable();
         });
 
         if (!$schema->hasTable(self::TOKENS)) {

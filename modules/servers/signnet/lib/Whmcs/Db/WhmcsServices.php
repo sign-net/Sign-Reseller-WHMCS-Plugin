@@ -30,6 +30,14 @@ final class WhmcsServices
     }
 
     /**
+     * The reason WHMCS recorded for suspending the service, empty when it has none.
+     */
+    public static function suspendReason(int $serviceId): string
+    {
+        return (string) Capsule::table('tblhosting')->where('id', $serviceId)->value('suspendreason');
+    }
+
+    /**
      * The WHMCS order the service was made by (0 for one made without an order), or null when the
      * service no longer exists. An administrator's edits of a service never change it, moving the
      * service to another client included.

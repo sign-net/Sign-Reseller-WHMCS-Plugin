@@ -219,6 +219,12 @@ WHMCS order each existing link's service came from, so that a newer service WHMC
 service's id never takes over its portal, and encodes the names of add-on options that earlier
 versions stored plain, the way WHMCS stores text, so the order form shows them as typed.
 
+Earlier versions did not record when WHMCS's own suspension of a portal began, which is how the
+plugin now tells it from a suspension made outside WHMCS. So the first time the plugin reads such a
+portal from Sign.net, it takes the portal's suspension as WHMCS's only if it carries the reason
+WHMCS recorded for suspending the service; otherwise the suspension was made outside WHMCS, and
+WHMCS no longer lifts it on its own.
+
 ## WHMCS 8.13 and 9.0
 
 The plugin supports both. WHMCS 9.0 needs PHP 8.2 or later; 8.13 runs on PHP 8.1 to 8.3. Its

@@ -25,6 +25,7 @@ final class WhmcsSchema
             $table->string('domain')->default('');
             $table->string('username')->default('');
             $table->string('domainstatus')->default('Pending');
+            $table->text('suspendreason')->nullable();
         });
 
         $schema->create('tblservers', static function (Blueprint $table): void {

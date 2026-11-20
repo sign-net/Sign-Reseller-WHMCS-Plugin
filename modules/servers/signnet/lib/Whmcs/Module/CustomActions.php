@@ -15,7 +15,9 @@ use SignNet\Whmcs\Db\WhmcsServices;
 use SignNet\Whmcs\Provisioning\DomainState;
 use SignNet\Whmcs\Provisioning\HostnameNormalizer;
 use SignNet\Whmcs\Provisioning\PlanException;
+use SignNet\Whmcs\Provisioning\PortalSuspension;
 use SignNet\Whmcs\Provisioning\ProvisionService;
+use SignNet\Whmcs\Provisioning\WhmcsSuspension;
 
 /**
  * The service page's Sign.net buttons, and the client area's "Check again".
@@ -46,7 +48,7 @@ final class CustomActions
     {
         $link = $this->linked($params);
         $label = PortalCache::get($this->client, $link, true);
-        $this->links->save($link->withPortalSuspension($label->isSuspended())->with([
+        $this->links->save(WhmcsSuspension::observe($link, PortalSuspension::of($label))->with([
             'domainSetup' => DomainState::toArray($label->domainSetup),
         ]));
 
@@ -130,8 +132,8 @@ final class CustomActions
         if ($holder !== null) {
             return sprintf('That portal is linked to service #%d.', $holder->serviceId);
         }
-        $owner = $this->client->getPrivateLabel($label->tenantId)->owner;
-        $link = $link->withPortalSuspension($label->isSuspended())->with([
+        $portal = $this->client->getPrivateLabel($label->tenantId);
+        $link = WhmcsSuspension::observe($link, PortalSuspension::of($portal))->with([
             'tenantId' => $label->tenantId,
             'hostname' => $label->primaryHost,
             'attemptState' => ServiceLink::ATTEMPT_NONE,
@@ -144,7 +146,7 @@ final class CustomActions
             'Sign.net: service #%d linked to the existing portal %s, %s.',
             $serviceId,
             $link->hostname,
-            $owner === null ? 'which has no owner account' : 'owned by ' . $owner->email,
+            $portal->owner === null ? 'which has no owner account' : 'owned by ' . $portal->owner->email,
         ), (int) ($params['userid'] ?? 0));
 
         return ProvisionService::SUCCESS;
@@ -170,6 +172,8 @@ final class CustomActions
             'heldWarnings' => [],
             'approvedAt' => null,
             'lastError' => null,
+            'suspendAttemptAt' => null,
+            'whmcsSuspendedAt' => null,
         ]));
         PortalCache::forget((string) $link->tenantId);
         logActivity(sprintf(

@@ -47,6 +47,7 @@ final class LifecycleServiceTest extends ModuleTestCase
         self::assertSame(['reason' => 'Overdue on Payment'], self::bodyOf($this->transport->lastRequest()));
         self::assertSame(ServiceLink::STATE_SUSPENDED, $this->link()->state);
         self::assertNull($this->link()->suspendedOutsideAt);
+        self::assertSame(time() * 1000, $this->link()->whmcsSuspendedAt, 'When WHMCS\'s suspension began.');
         self::assertContains(
             'Sign.net: portal sign.acme.test suspended for service #101.',
             WhmcsFake::activityMessages(),
@@ -264,7 +265,7 @@ final class LifecycleServiceTest extends ModuleTestCase
     #[Test]
     public function aRepeatOfWhmcssOwnSuspensionIsStillWhmcss(): void
     {
-        $this->links->save($this->link()->with(['state' => ServiceLink::STATE_SUSPENDED]));
+        $this->links->save($this->link()->withWhmcsSuspension((time() - 86400) * 1000));
         $this->queueToken();
         $this->transport->queueData(self::suspendedSince(time() - 86400, 'Overdue on Payment'));
         $this->transport->queueData(self::active());
@@ -280,9 +281,40 @@ final class LifecycleServiceTest extends ModuleTestCase
     }
 
     #[Test]
+    public function aSuspensionThatTookThePlaceOfWhmcssIsNotWhmcss(): void
+    {
+        $this->links->save($this->link()->withWhmcsSuspension((time() - 86400) * 1000));
+        $this->queueToken();
+        $this->transport->queueData(self::suspendedSince(time() - 3600, 'Abuse: phishing documents reported'));
+
+        $this->service()->suspend($this->params(['suspendreason' => 'Overdue on Payment']));
+
+        self::assertNotNull($this->link()->suspendedOutsideAt, 'The console lifted WHMCS\'s and suspended again.');
+        self::assertNull($this->link()->whmcsSuspendedAt);
+    }
+
+    #[Test]
+    public function aSuspensionAnEarlierVersionRecordedIsWhmcssWhenItHasWhmcssReason(): void
+    {
+        $this->links->save($this->link()->with(['state' => ServiceLink::STATE_SUSPENDED]));
+        Capsule::table('tblhosting')->insert(['id' => self::SERVICE_ID, 'suspendreason' => 'Overdue on Payment ']);
+        $this->queueToken();
+        $this->transport->queueData(self::suspendedSince(time() - 86400, 'Overdue on Payment'));
+        $this->transport->queueData(self::suspendedSince(time() - 86400, 'Abuse: phishing documents reported'));
+
+        $this->service()->suspend($this->params(['suspendreason' => 'Overdue on Payment']));
+        $whmcss = $this->link();
+        $this->links->save($this->link()->with(['state' => ServiceLink::STATE_SUSPENDED, 'whmcsSuspendedAt' => null]));
+        $this->service()->suspend($this->params(['suspendreason' => 'Overdue on Payment']));
+
+        self::assertSame([null, (time() - 86400) * 1000], [$whmcss->suspendedOutsideAt, $whmcss->whmcsSuspendedAt]);
+        self::assertNotNull($this->link()->suspendedOutsideAt, 'The console\'s, which WHMCS suspended over.');
+    }
+
+    #[Test]
     public function aPortalLiftedInTheConsoleThenSuspendedByWhmcsHoldsWhmcssSuspension(): void
     {
-        $this->links->save($this->link()->withPortalSuspension(true));
+        $this->links->save($this->link()->withOutsideSuspension());
         $this->queueToken();
         $this->transport->queueData(self::suspendedNow('Overdue on Payment'));
 
@@ -295,7 +327,7 @@ final class LifecycleServiceTest extends ModuleTestCase
     #[Test]
     public function itSaysWhenOnlySignNetCanLiftASuspension(): void
     {
-        $this->links->save($this->link()->withPortalSuspension(true));
+        $this->links->save($this->link()->withOutsideSuspension());
         $this->queueToken();
         $this->transport->queueError(400, 'suspended_by_platform');
         $this->transport->queueData(R::label(['suspendedBy' => 'Platform', 'suspendReason' => 'Terms breach']));

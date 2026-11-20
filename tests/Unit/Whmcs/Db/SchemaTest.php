@@ -60,6 +60,7 @@ final class SchemaTest extends DatabaseTestCase
         Schema::install();
 
         self::assertTrue(Capsule::schema()->hasColumn(Schema::SERVICES, 'suspend_attempt_at'));
+        self::assertTrue(Capsule::schema()->hasColumn(Schema::SERVICES, 'whmcs_suspended_at'));
         $links = new ServiceRepository();
         self::assertNull($links->find(201)?->suspendedOutsideAt, 'WHMCS suspended the service too.');
         self::assertNotNull($links->find(202)?->suspendedOutsideAt);

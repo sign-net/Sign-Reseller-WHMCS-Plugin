@@ -472,7 +472,7 @@ final class ProvisionService
      */
     private function adopt(ServiceLink $link, PrivateLabel $portal, array $params): ServiceLink
     {
-        $adopted = $this->links->save($link->withPortalSuspension($portal->isSuspended())->with([
+        $adopted = $this->links->save(WhmcsSuspension::observe($link, PortalSuspension::of($portal))->with([
             'tenantId' => $portal->tenantId,
             'attemptState' => ServiceLink::ATTEMPT_NONE,
             'attemptAt' => null,
@@ -498,7 +498,7 @@ final class ProvisionService
      */
     private function linkTo(ServiceLink $link, string $tenantId, array $params, DomainSetup $domain): ServiceLink
     {
-        $link = $this->links->save($link->withPortalSuspension(false)->with([
+        $link = $this->links->save($link->withoutSuspension()->with([
             'tenantId' => $tenantId,
             'attemptState' => ServiceLink::ATTEMPT_NONE,
             'attemptAt' => null,
