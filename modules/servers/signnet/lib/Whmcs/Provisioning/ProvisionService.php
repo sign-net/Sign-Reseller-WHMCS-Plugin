@@ -143,11 +143,12 @@ final class ProvisionService
         ProductSettings $product,
         array $params,
     ): string {
-        $inDoubt = $link->attemptState === ServiceLink::ATTEMPT_UNKNOWN && $link->hostname === $order->hostname;
-        $settled = $inDoubt ? $this->settleUnanswered($link, $order, $product, $params) : null;
+        $isUnanswered = $link->attemptState === ServiceLink::ATTEMPT_UNKNOWN;
+        $settled = $isUnanswered ? $this->settleUnanswered($link, $order, $product, $params) : null;
         if ($settled !== null) {
             return $settled;
         }
+        $inDoubt = $isUnanswered && $link->hostname === $order->hostname;
         $link = self::withOrder($link, $order);
 
         return $this->refusal($link, $order, $product, $params)
@@ -159,8 +160,8 @@ final class ProvisionService
      *
      * @param array<string, mixed> $params
      *
-     * @return string|null What the run answers; null when no portal has the hostname, so trying
-     *     again is safe.
+     * @return string|null What the run answers; null when the call made no portal, so trying again
+     *     is safe.
      */
     private function settleUnanswered(
         ServiceLink $link,
@@ -168,6 +169,9 @@ final class ProvisionService
         ProductSettings $product,
         array $params,
     ): ?string {
+        if ($link->hostname !== $order->hostname) {
+            return $this->settleBeforeNewAddress($link, $order, $params);
+        }
         try {
             [$taken, $made] = $this->unanswered->find($link, $order->hostname, $order->ownerEmail);
         } catch (ApiException $exception) {
@@ -178,6 +182,40 @@ final class ProvisionService
         }
 
         return $taken === null ? null : $this->hostnameTaken(self::withOrder($link, $order));
+    }
+
+    /**
+     * The order now names another address than the unanswered call asked for. A portal that call
+     * made is linked rather than left behind, and it keeps its address.
+     *
+     * @param array<string, mixed> $params
+     */
+    private function settleBeforeNewAddress(ServiceLink $link, OrderDetails $order, array $params): ?string
+    {
+        try {
+            [, $made] = $this->unanswered->find($link, $link->hostname, $order->ownerEmail);
+        } catch (ApiException $exception) {
+            return $this->fail($link, sprintf(
+                'Resolve the earlier provisioning call for %1$s before using %2$s: its answer never arrived, and '
+                . 'looking for the portal it may have made on %1$s failed. Run Create again to look once more. '
+                . 'Details: %3$s',
+                $link->hostname,
+                $order->hostname,
+                ErrorText::describe($exception),
+            ));
+        }
+        if ($made === null) {
+            return null;
+        }
+
+        return $this->fail($this->adopt($link, $made, $params), sprintf(
+            'The portal address was not changed to %1$s. The earlier provisioning call, whose answer never '
+            . 'arrived, made a portal on %2$s, and this service now manages it; the plugin cannot move a portal '
+            . 'to another address. Set the service\'s portal address back to %2$s, then run Create again to '
+            . 'finish.',
+            $order->hostname,
+            $link->hostname,
+        ));
     }
 
     /**
@@ -333,7 +371,7 @@ final class ProvisionService
     {
         return $this->fail($link, sprintf(
             'Sign.net did not confirm that the portal was created. Running Create again is safe: it looks for '
-            . 'the portal first. Details: %s',
+            . 'the portal first. Do not change the portal address before it has. Details: %s',
             ErrorText::describe($exception),
         ));
     }

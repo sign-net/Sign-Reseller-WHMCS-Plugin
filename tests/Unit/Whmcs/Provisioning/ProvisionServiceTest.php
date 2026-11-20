@@ -265,7 +265,11 @@ final class ProvisionServiceTest extends ModuleTestCase
 
         $first = $this->service()->create($this->params());
 
-        self::assertStringContainsString('Running Create again is safe', $first);
+        self::assertStringStartsWith(
+            'Sign.net did not confirm that the portal was created. Running Create again is safe: it looks for the '
+            . 'portal first. Do not change the portal address before it has. Details: Could not reach Sign.net: ',
+            $first,
+        );
         self::assertSame(ServiceLink::ATTEMPT_UNKNOWN, $this->link()->attemptState);
 
         $this->transport->queueData(R::labels([R::TENANT_ID => 'sign.acme.test']));
@@ -401,6 +405,95 @@ final class ProvisionServiceTest extends ModuleTestCase
         self::assertStringStartsWith('Sign.net did not confirm that the portal was created.', $result);
         self::assertSame(ServiceLink::ATTEMPT_UNKNOWN, $this->link()->attemptState);
         self::assertSame($result, $this->link()->lastError);
+        self::assertSame([], $this->requestsTo(R::PROVISION_CALL));
+    }
+
+    #[Test]
+    public function aNewAddressAfterALostAnswerLinksThePortalTheCallMadeAndKeepsItsAddress(): void
+    {
+        $this->saveUnansweredAttempt(time() - 60, 'old.acme.test');
+        $this->queueToken();
+        $this->transport->queueData(R::labels([R::TENANT_ID => 'old.acme.test']));
+        $this->transport->queueData(['primaryHost' => 'old.acme.test'] + R::labelCreatedAt(time()));
+
+        $result = $this->service()->create($this->params());
+
+        self::assertSame(
+            'The portal address was not changed to sign.acme.test. The earlier provisioning call, whose answer never '
+            . 'arrived, made a portal on old.acme.test, and this service now manages it; the plugin cannot move a '
+            . 'portal to another address. Set the service\'s portal address back to old.acme.test, then run Create '
+            . 'again to finish.',
+            $result,
+        );
+        $link = $this->link();
+        self::assertSame([R::TENANT_ID, 'old.acme.test'], [$link->tenantId, $link->hostname]);
+        self::assertSame(ServiceLink::ATTEMPT_NONE, $link->attemptState);
+        self::assertSame($result, $link->lastError);
+        self::assertSame([], $this->requestsTo(R::PROVISION_CALL), 'No second portal.');
+        $service = Rows::first(Capsule::table('tblhosting')->where('id', self::SERVICE_ID));
+        self::assertSame('old.acme.test', $service['domain'] ?? null);
+
+        $this->transport->queueData(R::assignment('pkg-1'));
+
+        self::assertSame('success', $this->service()->create($this->params()), 'Create again finishes.');
+        self::assertNull($this->link()->lastError);
+    }
+
+    #[Test]
+    public function aNewAddressAfterALostAnswerIsUsedWhenTheCallMadeNoPortal(): void
+    {
+        $this->saveUnansweredAttempt(time() - 60, 'old.acme.test');
+        $this->queueToken();
+        $this->transport->queueData(R::labels());
+        $this->transport->queueData(R::quota());
+        $this->transport->queueData(R::package());
+        $this->transport->queueData(R::provisioned(R::assigned()));
+
+        $result = $this->service()->create($this->params());
+
+        self::assertSame('success', $result);
+        self::assertSame([...self::FIRST_CALLS, 'GET ' . R::LABELS], array_slice($this->calls(), 0, 3));
+        self::assertSame('sign.acme.test', $this->link()->hostname);
+        self::assertSame(
+            'sign.acme.test',
+            self::bodyOf($this->requestTo(R::PROVISION_CALL))['config']['domain'] ?? null,
+        );
+    }
+
+    #[Test]
+    public function aNewAddressAfterALostAnswerIsUsedWhenTheOldOnesPortalIsNotTheCalls(): void
+    {
+        $this->saveUnansweredAttempt(time() - 60, 'old.acme.test');
+        $this->queueToken();
+        $this->transport->queueData(R::labels([R::TENANT_ID => 'old.acme.test']));
+        $this->transport->queueData(R::labelCreatedAt(time() - 3600));
+        $this->transport->queueData(R::quota());
+        $this->transport->queueData(R::package());
+        $this->transport->queueData(R::provisioned(R::assigned()));
+
+        $result = $this->service()->create($this->params());
+
+        self::assertSame('success', $result, 'That portal took the old address before the call, so it made none.');
+        self::assertSame('sign.acme.test', $this->link()->hostname);
+    }
+
+    #[Test]
+    public function aNewAddressAfterALostAnswerWaitsUntilTheOldOneCanBeLookedAt(): void
+    {
+        $this->saveUnansweredAttempt(time() - 60, 'old.acme.test');
+        $this->queueToken();
+        $this->transport->queueError(500, 'internal_server_error');
+
+        $result = $this->service()->create($this->params());
+
+        self::assertStringStartsWith(
+            'Resolve the earlier provisioning call for old.acme.test before using sign.acme.test: its answer never '
+            . 'arrived, and looking for the portal it may have made on old.acme.test failed. Run Create again to '
+            . 'look once more. Details: Sign.net could not complete the request (HTTP 500).',
+            $result,
+        );
+        $link = $this->link();
+        self::assertSame(['old.acme.test', ServiceLink::ATTEMPT_UNKNOWN], [$link->hostname, $link->attemptState]);
         self::assertSame([], $this->requestsTo(R::PROVISION_CALL));
     }
 
@@ -891,15 +984,16 @@ final class ProvisionServiceTest extends ModuleTestCase
     }
 
     /**
-     * Service 101's earlier provisioning call for sign.acme.test, sent at $attemptAt (Unix seconds),
-     * whose answer never arrived.
+     * Service 101's earlier provisioning call for $hostname, sent at $attemptAt (Unix seconds), whose
+     * answer never arrived.
      */
-    private function saveUnansweredAttempt(int $attemptAt): void
+    private function saveUnansweredAttempt(int $attemptAt, string $hostname = 'sign.acme.test'): void
     {
         $this->links->save(new ServiceLink(
             self::SERVICE_ID,
             $this->serverId,
-            hostname: 'sign.acme.test',
+            hostname: $hostname,
+            ownerEmail: 'ada@acme.test',
             attemptState: ServiceLink::ATTEMPT_UNKNOWN,
             attemptAt: $attemptAt,
         ));

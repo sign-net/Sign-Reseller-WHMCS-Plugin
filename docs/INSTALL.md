@@ -169,7 +169,9 @@ do. If Sign.net itself suspended a portal, Unsuspend explains that only Sign.net
   portal before trying again, so it never makes a second one. It links a portal only if it fits the
   lost call: on the address the call asked for, created since the call, and owned by the client or by
   nobody yet. Any other portal on that address is reported as already in use; if it is yours, link
-  it with **Link existing portal**.
+  it with **Link existing portal**. Leave the portal address as it is until that run: a run on a
+  changed address still looks at the old one first, and links the portal it finds there rather than
+  make a second.
 - **"The API key lacks a scope"**: create a key with all three scopes and paste it into the server's
   Password field.
 - **Token minting is paused**: Sign.net allows five tokens per fifteen minutes per address, and the
