@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace SignNet\Whmcs\Hooks;
 
+use SignNet\Whmcs\Db\Schema;
 use SignNet\Whmcs\Db\ServiceLink;
 use SignNet\Whmcs\Db\ServiceRepository;
 
@@ -18,6 +19,9 @@ final class OrphanedPortalFlagger
      */
     public function flag(array $vars): void
     {
+        // A service can be deleted before any module call or addon page has upgraded the tables,
+        // and the save below writes every column.
+        Schema::ensure();
         $services = new ServiceRepository();
         $serviceId = $vars['serviceid'] ?? null;
         $link = is_numeric($serviceId) ? $services->find((int) $serviceId) : null;

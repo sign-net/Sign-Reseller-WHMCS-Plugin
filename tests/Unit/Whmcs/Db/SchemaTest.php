@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace SignNet\Tests\Unit\Whmcs\Db;
 
-use Illuminate\Database\Schema\Blueprint;
 use PHPUnit\Framework\Attributes\Test;
 use SignNet\ResellerApi\Auth\AccessToken;
 use SignNet\Tests\Support\DatabaseTestCase;
+use SignNet\Tests\Support\VersionOneTables;
 use SignNet\Whmcs\Db\DbTokenStore;
 use SignNet\Whmcs\Db\OrphanedLinkException;
 use SignNet\Whmcs\Db\Schema;
@@ -22,7 +22,7 @@ final class SchemaTest extends DatabaseTestCase
     #[Test]
     public function itAddsTheSlugToATokenTableFromVersionOneAndKeepsItsToken(): void
     {
-        self::createTokenTableOfVersionOne();
+        VersionOneTables::createTokenTable();
         Capsule::table(Schema::TOKENS)->insert([
             'fingerprint' => self::FINGERPRINT,
             'access_token' => encrypt('tok-secret'),
@@ -44,16 +44,16 @@ final class SchemaTest extends DatabaseTestCase
     #[Test]
     public function itRecordsWhichLinksOfAnEarlierVersionHoldASuspensionWhmcsDidNotMake(): void
     {
-        self::createServiceTableOfVersionOne();
+        VersionOneTables::createServiceTable();
         Capsule::table('tblhosting')->insert([
             ['id' => 201, 'domainstatus' => 'Suspended'],
             ['id' => 202, 'domainstatus' => 'Active'],
             ['id' => 203, 'domainstatus' => 'Active'],
         ]);
         Capsule::table(Schema::SERVICES)->insert([
-            self::serviceRowOfVersionOne(201, ServiceLink::STATE_SUSPENDED),
-            self::serviceRowOfVersionOne(202, ServiceLink::STATE_SUSPENDED),
-            self::serviceRowOfVersionOne(203, ServiceLink::STATE_ACTIVE),
+            VersionOneTables::serviceRow(201, ServiceLink::STATE_SUSPENDED),
+            VersionOneTables::serviceRow(202, ServiceLink::STATE_SUSPENDED),
+            VersionOneTables::serviceRow(203, ServiceLink::STATE_ACTIVE),
         ]);
 
         Schema::install();
@@ -70,17 +70,17 @@ final class SchemaTest extends DatabaseTestCase
     #[Test]
     public function itRecordsTheOrderOfEachEarlierLinksServiceAndNoneForADeletedService(): void
     {
-        self::createServiceTableOfVersionOne();
+        VersionOneTables::createServiceTable();
         Capsule::table('tblhosting')->insert([
             ['id' => 301, 'orderid' => 77, 'domainstatus' => 'Active'],
             ['id' => 303, 'orderid' => 0, 'domainstatus' => 'Active'],
             ['id' => 304, 'orderid' => null, 'domainstatus' => 'Active'],
         ]);
         Capsule::table(Schema::SERVICES)->insert([
-            self::serviceRowOfVersionOne(301, ServiceLink::STATE_ACTIVE),
-            self::serviceRowOfVersionOne(302, ServiceLink::STATE_ACTIVE),
-            self::serviceRowOfVersionOne(303, ServiceLink::STATE_ACTIVE),
-            self::serviceRowOfVersionOne(304, ServiceLink::STATE_ACTIVE),
+            VersionOneTables::serviceRow(301, ServiceLink::STATE_ACTIVE),
+            VersionOneTables::serviceRow(302, ServiceLink::STATE_ACTIVE),
+            VersionOneTables::serviceRow(303, ServiceLink::STATE_ACTIVE),
+            VersionOneTables::serviceRow(304, ServiceLink::STATE_ACTIVE),
         ]);
 
         Schema::install();
@@ -95,59 +95,5 @@ final class SchemaTest extends DatabaseTestCase
         self::assertSame([77, 0], [$links->forService(301)?->orderId, $links->forService(304)?->orderId]);
         $this->expectException(OrphanedLinkException::class);
         $links->forService(302);
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private static function serviceRowOfVersionOne(int $serviceId, string $state): array
-    {
-        return [
-            'service_id' => $serviceId,
-            'server_id' => 1,
-            'tenant_id' => sprintf('%032d', $serviceId),
-            'hostname' => 'portal' . $serviceId . '.acme.test',
-            'state' => $state,
-            'created_at' => 1_900_000_000,
-            'updated_at' => 1_900_000_000,
-        ];
-    }
-
-    private static function createServiceTableOfVersionOne(): void
-    {
-        Capsule::schema()->drop(Schema::SERVICES);
-        Capsule::schema()->create(Schema::SERVICES, static function (Blueprint $table): void {
-            $table->unsignedInteger('service_id')->primary();
-            $table->unsignedInteger('server_id');
-            $table->string('tenant_id', 32)->nullable()->unique();
-            $table->string('hostname', 253)->default('');
-            $table->string('portal_name', 255)->default('');
-            $table->string('owner_email', 255)->default('');
-            $table->string('state', 16)->default(ServiceLink::STATE_PENDING);
-            $table->string('attempt_state', 16)->default(ServiceLink::ATTEMPT_NONE);
-            $table->unsignedInteger('attempt_at')->nullable();
-            $table->string('package_state', 16)->default(ServiceLink::PACKAGE_NONE);
-            $table->text('held_warnings')->nullable();
-            $table->unsignedInteger('approved_at')->nullable();
-            $table->text('domain_json')->nullable();
-            $table->text('last_error')->nullable();
-            $table->unsignedInteger('created_at');
-            $table->unsignedInteger('updated_at');
-            $table->index(['server_id', 'hostname']);
-        });
-    }
-
-    private static function createTokenTableOfVersionOne(): void
-    {
-        Capsule::schema()->drop(Schema::TOKENS);
-        Capsule::schema()->create(Schema::TOKENS, static function (Blueprint $table): void {
-            $table->string('fingerprint', 64)->primary();
-            $table->text('access_token')->nullable();
-            $table->text('scopes')->nullable();
-            $table->unsignedInteger('expires_at')->nullable();
-            $table->unsignedInteger('blocked_until')->nullable();
-            $table->string('block_reason', 255)->nullable();
-            $table->unsignedInteger('updated_at');
-        });
     }
 }

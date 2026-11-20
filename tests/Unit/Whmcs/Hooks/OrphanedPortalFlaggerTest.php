@@ -5,11 +5,15 @@ declare(strict_types=1);
 namespace SignNet\Tests\Unit\Whmcs\Hooks;
 
 use PHPUnit\Framework\Attributes\Test;
+use ReflectionProperty;
 use SignNet\Tests\Support\DatabaseTestCase;
+use SignNet\Tests\Support\VersionOneTables;
 use SignNet\Tests\Support\WhmcsFake;
+use SignNet\Whmcs\Db\Schema;
 use SignNet\Whmcs\Db\ServiceLink;
 use SignNet\Whmcs\Db\ServiceRepository;
 use SignNet\Whmcs\Hooks\OrphanedPortalFlagger;
+use WHMCS\Database\Capsule;
 
 final class OrphanedPortalFlaggerTest extends DatabaseTestCase
 {
@@ -27,6 +31,21 @@ final class OrphanedPortalFlaggerTest extends DatabaseTestCase
         self::assertNotNull($link);
         self::assertSame($warning, $link->lastError);
         self::assertSame('tenant-1', $link->tenantId);
+    }
+
+    #[Test]
+    public function itFlagsThePortalWhenTheServiceIsDeletedBeforeTheTablesWereUpgraded(): void
+    {
+        VersionOneTables::createServiceTable();
+        Capsule::table(Schema::SERVICES)->insert(VersionOneTables::serviceRow(101, ServiceLink::STATE_ACTIVE));
+        (new ReflectionProperty(Schema::class, 'ensured'))->setValue(null, false);
+
+        (new OrphanedPortalFlagger())->flag(['serviceid' => 101, 'userid' => 7]);
+
+        self::assertStringStartsWith(
+            'WHMCS service #101 was deleted, but its Sign.net portal portal101.acme.test',
+            (string) (new ServiceRepository())->find(101)?->lastError,
+        );
     }
 
     #[Test]
