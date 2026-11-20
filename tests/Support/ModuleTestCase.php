@@ -51,13 +51,21 @@ abstract class ModuleTestCase extends DatabaseTestCase
      */
     protected function queueToken(): void
     {
+        $this->queueAccessToken();
+        $this->transport->queueData(SignNetResponses::dashboard());
+    }
+
+    /**
+     * Sign.net's answer to minting the access token alone.
+     */
+    protected function queueAccessToken(): void
+    {
         $this->transport->queueJson(200, [
             'access_token' => self::ACCESS_TOKEN,
             'token_type' => 'Bearer',
             'expires_in' => 3600,
             'scope' => 'reseller:read reseller:provision reseller:packages',
         ]);
-        $this->transport->queueData(SignNetResponses::dashboard());
     }
 
     /**

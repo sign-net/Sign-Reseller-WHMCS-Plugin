@@ -16,7 +16,8 @@ use SignNet\ResellerApi\Support\RateLimitInfo;
 /**
  * Sends reseller API calls with a bearer token. A call refused with 401 (an expired, invalid or
  * revoked token) is retried once with a replaced token: the backend refuses before any handler
- * runs, so the retry cannot repeat a side effect.
+ * runs, so the retry cannot repeat a side effect. For the same reason, a token that cannot be
+ * had, first or as the replacement, is reported as the call never sent.
  *
  * @internal
  */
@@ -47,7 +48,7 @@ final class AuthorizedSender
         bool $isReadOnly = false,
     ): Exchange {
         $request = $this->requests->create($method, $path, $payload, $timeoutSeconds, $isReadOnly);
-        $token = $this->tokens->token();
+        $token = BeforeSending::run('get an access token', fn (): AccessToken => $this->tokens->token());
         try {
             return $this->sendWith($request, $token);
         } catch (AuthenticationException $exception) {
@@ -55,8 +56,12 @@ final class AuthorizedSender
                 throw $exception;
             }
         }
+        $replacement = BeforeSending::run(
+            'replace the access token Sign.net refused',
+            fn (): AccessToken => $this->tokens->refreshAfterRejection($token),
+        );
 
-        return $this->sendWith($request, $this->tokens->refreshAfterRejection($token));
+        return $this->sendWith($request, $replacement);
     }
 
     public function lastRateLimit(): ?RateLimitInfo

@@ -26,6 +26,9 @@ final class ProvisionServiceTest extends ModuleTestCase
         ['addonId' => 'add-7', 'code' => 'EXTRA', 'quantity' => 1, 'subscriptionAddonId' => 'sa-7'],
     ];
 
+    /** A product that confirms past the allowance, so the provisioning call is the run's first. */
+    private const AUTO_CONFIRM = ['configoption2' => 'auto'];
+
     private ServiceRepository $links;
 
     protected function setUp(): void
@@ -296,6 +299,48 @@ final class ProvisionServiceTest extends ModuleTestCase
         self::assertStringContainsString('Could not reach Sign.net', $result);
         self::assertSame(ServiceLink::ATTEMPT_FAILED, $this->link()->attemptState);
         self::assertNotContains('GET ' . R::LABELS, $this->calls());
+    }
+
+    #[Test]
+    public function aTokenSignNetFailsToMintLeavesTheAttemptUnsentSoTheNextRunProvisions(): void
+    {
+        $this->transport->queueJson(500, ['error' => 'server_error']);
+
+        $first = $this->service()->create($this->params(self::AUTO_CONFIRM));
+
+        self::assertStringStartsWith('Could not reach Sign.net: Could not get an access token: ', $first);
+        self::assertSame(ServiceLink::ATTEMPT_FAILED, $this->link()->attemptState);
+        self::assertSame([R::TOKEN_CALL], $this->calls(), 'The provisioning call never left.');
+
+        $this->queueToken();
+        $this->transport->queueData(R::provisioned(R::assigned()));
+
+        self::assertSame('success', $this->service()->create($this->params(self::AUTO_CONFIRM)));
+        self::assertNotContains('GET ' . R::LABELS, $this->calls(), 'Nothing was sent, so nothing is looked for.');
+        self::assertCount(1, $this->requestsTo(R::PROVISION_CALL));
+    }
+
+    #[Test]
+    public function aSlugSignNetFailsToGiveLeavesTheAttemptUnsentSoTheNextRunProvisions(): void
+    {
+        $this->queueAccessToken();
+        $this->transport->queueError(500, 'internal_server_error');
+
+        $first = $this->service()->create($this->params(self::AUTO_CONFIRM));
+
+        self::assertStringStartsWith(
+            'Could not reach Sign.net: Could not learn the reseller console address: ',
+            $first,
+        );
+        self::assertSame(ServiceLink::ATTEMPT_FAILED, $this->link()->attemptState);
+        self::assertSame([R::TOKEN_CALL, R::DASHBOARD_CALL], $this->calls(), 'The provisioning call never left.');
+
+        $this->transport->queueData(R::dashboard());
+        $this->transport->queueData(R::provisioned(R::assigned()));
+
+        self::assertSame('success', $this->service()->create($this->params(self::AUTO_CONFIRM)));
+        self::assertNotContains('GET ' . R::LABELS, $this->calls(), 'Nothing was sent, so nothing is looked for.');
+        self::assertCount(1, $this->requestsTo(R::PROVISION_CALL));
     }
 
     #[Test]
