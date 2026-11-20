@@ -54,11 +54,17 @@ final class Schema
                 $table->unsignedInteger('created_at');
                 $table->unsignedInteger('updated_at');
                 $table->unsignedInteger('suspended_outside_at')->nullable();
+                $table->integer('order_id')->nullable();
                 $table->index(['server_id', 'hostname']);
             });
         }
 
         self::addSuspendedOutsideAt();
+        // The WHMCS order of the service each link was made for.
+        self::addColumn(self::SERVICES, 'order_id', static function (Blueprint $table): void {
+            $table->integer('order_id')->nullable();
+        });
+        self::recordServiceOrders();
 
         if (!$schema->hasTable(self::TOKENS)) {
             $schema->create(self::TOKENS, static function (Blueprint $table): void {
@@ -107,6 +113,25 @@ final class Schema
                 $query->select('id')->from('tblhosting')->where('domainstatus', 'Suspended');
             })
             ->update(['suspended_outside_at' => time()]);
+    }
+
+    /**
+     * Records the WHMCS order of the service of each link that has none yet: a link an earlier version
+     * saved. A link whose service is gone is given an order no service has, so that a newer service
+     * WHMCS gives the same id never matches it.
+     */
+    private static function recordServiceOrders(): void
+    {
+        $unrecorded = static fn (): Builder => Capsule::table(self::SERVICES)->whereNull('order_id');
+        if (!$unrecorded()->exists()) {
+            return;
+        }
+        $orderOfService = sprintf(
+            'COALESCE((SELECT tblhosting.orderid FROM tblhosting WHERE tblhosting.id = %s.service_id), %d)',
+            self::SERVICES,
+            ServiceLink::ORDER_OF_DELETED_SERVICE,
+        );
+        $unrecorded()->update(['order_id' => Capsule::connection()->raw($orderOfService)]);
     }
 
     /**

@@ -9,6 +9,7 @@ use SignNet\ResellerApi\Exception\ApiException;
 use SignNet\ResellerApi\Model\PrivateLabel;
 use SignNet\ResellerApi\ResellerClient;
 use SignNet\Whmcs\ClientFactory;
+use SignNet\Whmcs\Db\OrphanedLinkException;
 use SignNet\Whmcs\Db\Rows;
 use SignNet\Whmcs\Db\Schema;
 use SignNet\Whmcs\Db\ServiceLink;
@@ -249,7 +250,7 @@ final class ServerModule
         try {
             Schema::ensure();
             $serviceId = (int) $params['serviceid'];
-            $link = (new ServiceRepository())->find($serviceId);
+            $link = (new ServiceRepository())->forService($serviceId);
             [$label, $error] = self::portal($params, $link);
 
             return AdminTab::fields($link, $label, $error, WhmcsServices::status($serviceId));
@@ -268,7 +269,7 @@ final class ServerModule
         $serviceId = (int) $params['serviceid'];
         try {
             Schema::ensure();
-            $link = (new ServiceRepository())->find($serviceId);
+            $link = (new ServiceRepository())->forService($serviceId);
             [$label, $error] = self::portal($params, $link);
             $variables = ClientAreaView::variables(
                 $serviceId,
@@ -326,7 +327,7 @@ final class ServerModule
         try {
             Schema::ensure();
             $result = $work();
-        } catch (PlanException | InvalidOrderException | PortalGoneException $exception) {
+        } catch (PlanException | InvalidOrderException | PortalGoneException | OrphanedLinkException $exception) {
             $result = $exception->getMessage();
         } catch (ApiException $exception) {
             // The transport already put the failed call in the module log.

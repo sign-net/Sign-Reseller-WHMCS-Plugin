@@ -141,8 +141,21 @@ final class ServerModuleTest extends ModuleTestCase
         $this->transport->queueData(R::provisioned(R::assigned()));
 
         self::assertSame('success', signnet_CreateAccount($this->params()));
-        self::assertSame(R::TENANT_ID, $this->links->find(self::SERVICE_ID)?->tenantId);
+        $link = $this->links->find(self::SERVICE_ID);
+        self::assertSame([R::TENANT_ID, self::ORDER_ID], [$link?->tenantId, $link?->orderId]);
         self::assertNoSecretsLogged();
+    }
+
+    #[Test]
+    public function aServiceMadeWithoutAnOrderStillManagesItsPortal(): void
+    {
+        $this->insertService(self::SERVICE_ID, 'Active', 0);
+        $this->linkPortal();
+        $this->queueToken();
+        $this->transport->queueData(R::label());
+
+        self::assertSame('success', signnet_refresh($this->params()));
+        self::assertSame(0, $this->links->find(self::SERVICE_ID)?->orderId);
     }
 
     #[Test]

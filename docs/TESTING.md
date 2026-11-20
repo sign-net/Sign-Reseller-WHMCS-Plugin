@@ -57,7 +57,7 @@ Use these values, so the messages you see match this guide.
 |---|---|
 | Your own packages | `QA1-START` “QA Starter”: Monthly, base price 19.00, Documents 100, Seats 5, Templates 3.<br>`QA1-PRO` “QA Pro”: Monthly, base price 49.00, Documents 500, Seats 20, Templates 10, Notarisations 20. |
 | Add-on | `QA1-SEATS` “5 extra seats”: Monthly, 5.00 per unit, grants Seats 5. |
-| Portal addresses | `p01.qa1-dns.example.com` for the first portal (C2). Then `p02.qa1.example.com` to `p11.qa1.example.com`, as each case says. Only p01 needs DNS. |
+| Portal addresses | `p01.qa1-dns.example.com` for the first portal (C2). Then `p02.qa1.example.com` to `p12.qa1.example.com`, as each case says. Only p01 needs DNS. |
 
 ### On Sign.net staging
 
@@ -725,6 +725,43 @@ Run “Terminate” on the same service again.
   the service to delete it.”
 - [ ] Step 4 deletes the portal, and the Dashboard no longer lists the service.
 
+**G9 · normal · A service with a deleted service's id**
+
+WHMCS can give a new service the id of a deleted one: MySQL 5.7 and MariaDB before 10.2.4 can after a restart,
+and an import can too. The plugin tells the two apart by the WHMCS order each service came from, so this case
+changes the order the plugin recorded for a service, which looks the same to it.
+
+1. Order and pay QA Starter on `p12.qa1.example.com`, and note the service's id.
+2. From the service's page, move the service to another client (create a second client first if you need one),
+   click “Refresh from Sign.net”, then move it back to the test client.
+3. In WHMCS's database, run:
+
+   ```sql
+   UPDATE mod_signnet_services SET order_id = order_id + 1000000 WHERE service_id = <id>;
+   ```
+
+4. On the service, run Module Commands → “Suspend”, then click “Refresh from Sign.net”.
+5. Look at the service's Sign.net fields and the addon's Dashboard, and, as the test client, at the service in
+   the client area.
+6. Click “Unlink (keeps the portal)”, then “Link existing portal”. The service's Username still holds p12's
+   tenant id.
+7. Terminate p12.
+
+- [ ] In step 2, “Refresh from Sign.net” succeeds: moving a service keeps the order it came from.
+- [ ] In step 4, both are refused with “The Sign.net portal p12.qa1.example.com (tenant <id>) was made for a WHMCS
+  service since deleted, and WHMCS has given that service's id, #<id>, to this newer service. Nothing was done to
+  the portal. To give this service a portal of its own, click "Unlink (keeps the portal)", then run Create. To
+  manage p12.qa1.example.com again, unlink it here, then use "Link existing portal" on the service it belongs
+  to.”, and the console still shows p12 active.
+- [ ] In step 5:
+  - “Sign.net portal” reads “Unavailable:”, then the same message;
+  - the Dashboard lists “WHMCS service deleted, portal still live” against “#<id>”, with “WHMCS has given the
+    deleted service's id to a newer service, which leaves this portal alone. Click "Unlink (keeps the portal)" on
+    service #<id>, then terminate the portal (tenant <id>) in Sign.net, or link it to another service.”;
+  - the client area shows “Setting up”, and not p12's address.
+- [ ] In step 6, both succeed. The service's Sign.net fields show p12 again, and the Dashboard no longer lists it.
+- [ ] Step 7 deletes p12.
+
 ### H. The allowance
 
 **H1 · critical · An order over the allowance is held**
@@ -852,6 +889,7 @@ fails, the assumption is probably what broke.
 | The columns of `tblcustomfields`, `tblemailtemplates`, `tblproductconfig*` and `tblpricing` | A1 (the template), B6 and B7 (fields and pricing), B9 (the option group) |
 | `-1.00` marks a billing cycle a product does not offer | B6: only Monthly is offered |
 | A module call is an administrator's when WHMCS defines `ADMINAREA` outside the command line, so the cron and a client's payment are not | G7 (the cron's Terminate is refused), D6 (the Unsuspend after the client's payment is refused, an administrator's is not) |
+| Moving a service to another client keeps its `tblhosting.orderid` | G9 step 2: the refresh succeeds |
 
 It also checks what the plugin assumes of Sign.net's reseller console, which it calls with the API key:
 

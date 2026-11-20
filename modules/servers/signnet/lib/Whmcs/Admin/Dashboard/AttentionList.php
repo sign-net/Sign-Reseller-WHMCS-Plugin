@@ -18,9 +18,10 @@ use WHMCS\Database\Capsule;
  * What needs an administrator: orders held over the allowance, provisioning that failed or is in
  * doubt, portal addresses not attached, WHMCS and Sign.net disagreeing about a portal (a service
  * WHMCS has ended among them), suspensions made outside WHMCS on services it has suspended, live
- * portals whose WHMCS service is gone, and addon settings new portals ignore.
+ * portals whose WHMCS service is gone (also where WHMCS has given its id to a newer service), and
+ * addon settings new portals ignore.
  *
- * @phpstan-type Service array{clientId: int, status: string}
+ * @phpstan-type Service array{clientId: int, status: string, orderId: int}
  * @phpstan-type Statuses array<array-key, string>
  */
 final class AttentionList
@@ -37,9 +38,11 @@ final class AttentionList
         $statuses = $labels === null ? null : self::statusByTenant($labels);
         $items = [];
         foreach (self::linksWithServices() as $row) {
-            $service = $row['hosting_id'] === null
-                ? null
-                : ['clientId' => (int) $row['hosting_userid'], 'status' => (string) $row['hosting_status']];
+            $service = $row['hosting_id'] === null ? null : [
+                'clientId' => (int) $row['hosting_userid'],
+                'status' => (string) $row['hosting_status'],
+                'orderId' => (int) $row['hosting_orderid'],
+            ];
             array_push($items, ...self::problems(ServiceLink::fromRow($row), $service, $statuses));
         }
         foreach ($invalidSettings as $setting) {
@@ -57,8 +60,8 @@ final class AttentionList
      */
     private static function problems(ServiceLink $link, ?array $service, ?array $statuses): array
     {
-        if ($service === null) {
-            $orphan = self::orphan($link, $statuses);
+        if ($service === null || !$link->isForOrder($service['orderId'])) {
+            $orphan = self::orphan($link, $service, $statuses);
 
             return $orphan === null ? [] : [$orphan];
         }
@@ -131,7 +134,7 @@ final class AttentionList
      */
     private static function domainNotAttached(ServiceLink $link, array $service): ?AttentionItem
     {
-        if (!self::isLive($link) || ($link->domainSetup['attached'] ?? null) !== false) {
+        if (!$link->isLive() || ($link->domainSetup['attached'] ?? null) !== false) {
             return null;
         }
 
@@ -146,7 +149,7 @@ final class AttentionList
      */
     private static function statusMismatch(ServiceLink $link, array $service, ?array $statuses): ?AttentionItem
     {
-        if ($statuses === null || !self::isLive($link)) {
+        if ($statuses === null || !$link->isLive()) {
             return null;
         }
         $tenantId = (string) $link->tenantId;
@@ -184,13 +187,23 @@ final class AttentionList
      * A live portal whose WHMCS service was deleted. When Sign.net's list shows the portal is gone
      * too, nothing is left to act on.
      *
+     * @param Service|null $service The newer service WHMCS has given the deleted one's id, if any.
      * @param Statuses|null $statuses
      */
-    private static function orphan(ServiceLink $link, ?array $statuses): ?AttentionItem
+    private static function orphan(ServiceLink $link, ?array $service, ?array $statuses): ?AttentionItem
     {
         $goneFromSignNet = $statuses !== null && !array_key_exists((string) $link->tenantId, $statuses);
-        if (!self::isLive($link) || $goneFromSignNet) {
+        if (!$link->isLive() || $goneFromSignNet) {
             return null;
+        }
+        if ($service !== null) {
+            return self::item($link, $service, 'WHMCS service deleted, portal still live', [sprintf(
+                'WHMCS has given the deleted service\'s id to a newer service, which leaves this portal alone. '
+                    . 'Click "Unlink (keeps the portal)" on service #%d, then terminate the portal (tenant %s) in '
+                    . 'Sign.net, or link it to another service.',
+                $link->serviceId,
+                (string) $link->tenantId,
+            )]);
         }
         $detail = $link->lastError ?? sprintf(
             'Terminate the portal (tenant %s) in Sign.net, or link it to another service.',
@@ -229,12 +242,6 @@ final class AttentionList
         return new AttentionItem($problem, $details, $link->serviceId, $service['clientId'], $link->hostname);
     }
 
-    private static function isLive(ServiceLink $link): bool
-    {
-        return $link->isLinked()
-            && in_array($link->state, [ServiceLink::STATE_ACTIVE, ServiceLink::STATE_SUSPENDED], true);
-    }
-
     /**
      * @param list<PrivateLabelSummary> $labels
      *
@@ -251,7 +258,8 @@ final class AttentionList
     }
 
     /**
-     * Every portal link with its WHMCS service's client and status (null columns when the service is gone).
+     * Every portal link with its WHMCS service's client, status and order (null columns when the service is
+     * gone).
      *
      * @return list<array<string, mixed>>
      */
@@ -261,7 +269,7 @@ final class AttentionList
             Capsule::table(Schema::SERVICES . ' as links')
                 ->leftJoin('tblhosting as hosting', 'hosting.id', '=', 'links.service_id')
                 ->select('links.*', 'hosting.id as hosting_id', 'hosting.userid as hosting_userid')
-                ->addSelect('hosting.domainstatus as hosting_status')
+                ->addSelect('hosting.domainstatus as hosting_status', 'hosting.orderid as hosting_orderid')
                 ->orderBy('links.service_id'),
         );
     }

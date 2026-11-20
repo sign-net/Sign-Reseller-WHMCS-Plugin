@@ -19,6 +19,7 @@ final class WhmcsSchema
         $schema->create('tblhosting', static function (Blueprint $table): void {
             $table->increments('id');
             $table->unsignedInteger('userid')->default(0);
+            $table->unsignedInteger('orderid')->default(0);
             $table->unsignedInteger('packageid')->default(0);
             $table->unsignedInteger('server')->default(0);
             $table->string('domain')->default('');

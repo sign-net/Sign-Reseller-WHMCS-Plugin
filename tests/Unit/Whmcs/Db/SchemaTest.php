@@ -9,6 +9,7 @@ use PHPUnit\Framework\Attributes\Test;
 use SignNet\ResellerApi\Auth\AccessToken;
 use SignNet\Tests\Support\DatabaseTestCase;
 use SignNet\Whmcs\Db\DbTokenStore;
+use SignNet\Whmcs\Db\OrphanedLinkException;
 use SignNet\Whmcs\Db\Schema;
 use SignNet\Whmcs\Db\ServiceLink;
 use SignNet\Whmcs\Db\ServiceRepository;
@@ -62,6 +63,34 @@ final class SchemaTest extends DatabaseTestCase
         self::assertNull($links->find(201)?->suspendedOutsideAt, 'WHMCS suspended the service too.');
         self::assertNotNull($links->find(202)?->suspendedOutsideAt);
         self::assertNull($links->find(203)?->suspendedOutsideAt);
+    }
+
+    #[Test]
+    public function itRecordsTheOrderOfEachEarlierLinksServiceAndNoneForADeletedService(): void
+    {
+        self::createServiceTableOfVersionOne();
+        Capsule::table('tblhosting')->insert([
+            ['id' => 301, 'orderid' => 77, 'domainstatus' => 'Active'],
+            ['id' => 303, 'orderid' => 0, 'domainstatus' => 'Active'],
+        ]);
+        Capsule::table(Schema::SERVICES)->insert([
+            self::serviceRowOfVersionOne(301, ServiceLink::STATE_ACTIVE),
+            self::serviceRowOfVersionOne(302, ServiceLink::STATE_ACTIVE),
+            self::serviceRowOfVersionOne(303, ServiceLink::STATE_ACTIVE),
+        ]);
+
+        Schema::install();
+        Capsule::table('tblhosting')->insert(['id' => 302, 'orderid' => 88, 'domainstatus' => 'Pending']);
+        Schema::install();
+
+        $links = new ServiceRepository();
+        self::assertSame(
+            [77, ServiceLink::ORDER_OF_DELETED_SERVICE, 0],
+            [$links->find(301)?->orderId, $links->find(302)?->orderId, $links->find(303)?->orderId],
+        );
+        self::assertSame(77, $links->forService(301)?->orderId);
+        $this->expectException(OrphanedLinkException::class);
+        $links->forService(302);
     }
 
     /**

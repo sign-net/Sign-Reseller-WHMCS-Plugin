@@ -33,12 +33,18 @@ final class ServiceLink
     public const PACKAGE_HELD = 'held';
     public const PACKAGE_FAILED = 'failed';
 
+    /** The order of a link whose service was already deleted when the plugin first recorded orders. */
+    public const ORDER_OF_DELETED_SERVICE = -1;
+
     /**
      * @param list<string>                $heldWarnings
      * @param array<string, mixed>|null   $domainSetup
      * @param int|null                    $suspendedOutsideAt When the plugin learnt that the portal holds a
      *     suspension WHMCS did not make; null while it holds none. WHMCS never lifts such a suspension
      *     on its own.
+     * @param int|null                    $orderId The WHMCS order (tblhosting.orderid) of the service the
+     *     link was made for, 0 for a service made without an order. Recorded when the link is first
+     *     saved, or by the upgrade for a link saved before; null until then.
      */
     public function __construct(
         public readonly int $serviceId,
@@ -58,12 +64,30 @@ final class ServiceLink
         public readonly int $createdAt = 0,
         public readonly int $updatedAt = 0,
         public readonly ?int $suspendedOutsideAt = null,
+        public readonly ?int $orderId = null,
     ) {
     }
 
     public function isLinked(): bool
     {
         return $this->tenantId !== null;
+    }
+
+    /** The link manages a portal that WHMCS has not deleted. */
+    public function isLive(): bool
+    {
+        return $this->isLinked() && in_array($this->state, [self::STATE_ACTIVE, self::STATE_SUSPENDED], true);
+    }
+
+    /**
+     * Whether the link was made for the service that now has its service id, which WHMCS made with
+     * order $orderId (null when no service has the id). WHMCS can give a deleted service's id to a
+     * newer service, and a link the deleted service left is not the newer one's. A link whose order
+     * is not recorded yet is taken to be its service's until the upgrade records it.
+     */
+    public function isForOrder(?int $orderId): bool
+    {
+        return $orderId === null || $this->orderId === null || $this->orderId === $orderId;
     }
 
     /**
@@ -112,6 +136,7 @@ final class ServiceLink
             'created_at' => $this->createdAt,
             'updated_at' => $this->updatedAt,
             'suspended_outside_at' => $this->suspendedOutsideAt,
+            'order_id' => $this->orderId,
         ];
     }
 
@@ -137,7 +162,9 @@ final class ServiceLink
             lastError: self::nullableString($row['last_error']),
             createdAt: (int) $row['created_at'],
             updatedAt: (int) $row['updated_at'],
-            suspendedOutsideAt: self::nullableInt($row['suspended_outside_at']),
+            // Columns added since 1.1 are missing until the plugin's tables are upgraded.
+            suspendedOutsideAt: self::nullableInt($row['suspended_outside_at'] ?? null),
+            orderId: self::nullableInt($row['order_id'] ?? null),
         );
     }
 

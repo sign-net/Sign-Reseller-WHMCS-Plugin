@@ -26,6 +26,18 @@ final class WhmcsServices
     }
 
     /**
+     * The WHMCS order the service was made by (0 for one made without an order), or null when the
+     * service no longer exists. An administrator's edits of a service never change it, moving the
+     * service to another client included.
+     */
+    public static function orderId(int $serviceId): ?int
+    {
+        $orderId = Capsule::table('tblhosting')->where('id', $serviceId)->value('orderid');
+
+        return $orderId === null ? null : (int) $orderId;
+    }
+
+    /**
      * Shows the portal on the service: its tenant id as the username and its hostname as the domain.
      */
     public static function showPortal(ServiceLink $link): void

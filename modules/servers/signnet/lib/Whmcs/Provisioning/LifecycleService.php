@@ -11,6 +11,7 @@ use SignNet\ResellerApi\Exception\ForbiddenException;
 use SignNet\ResellerApi\Exception\ValidationException;
 use SignNet\ResellerApi\Model\SuspensionState;
 use SignNet\ResellerApi\ResellerClient;
+use SignNet\Whmcs\Db\OrphanedLinkException;
 use SignNet\Whmcs\Db\ServiceLink;
 use SignNet\Whmcs\Db\ServiceRepository;
 use SignNet\Whmcs\Support\ErrorText;
@@ -42,10 +43,12 @@ final class LifecycleService
      * answers with that suspension, so its answer shows whether this call made the suspension.
      *
      * @param array<string, mixed> $params WHMCS module parameters; suspendreason is WHMCS's reason.
+     *
+     * @throws OrphanedLinkException
      */
     public function suspend(array $params): string
     {
-        $link = $this->links->find((int) $params['serviceid']);
+        $link = $this->links->forService((int) $params['serviceid']);
         if ($link === null || !$link->isLinked()) {
             return self::withoutPortal($link);
         }
@@ -112,10 +115,12 @@ final class LifecycleService
      * @param array<string, mixed> $params WHMCS module parameters.
      * @param bool $isAdministratorAction An administrator's Unsuspend also lifts a suspension made
      *     outside WHMCS; WHMCS's automation, such as unsuspending once the client pays, does not.
+     *
+     * @throws OrphanedLinkException
      */
     public function unsuspend(array $params, bool $isAdministratorAction): string
     {
-        $link = $this->links->find((int) $params['serviceid']);
+        $link = $this->links->forService((int) $params['serviceid']);
         if ($link === null || !$link->isLinked()) {
             return self::withoutPortal($link);
         }
@@ -146,10 +151,12 @@ final class LifecycleService
 
     /**
      * @param array<string, mixed> $params WHMCS module parameters.
+     *
+     * @throws OrphanedLinkException
      */
     public function terminate(array $params, TerminationGuard $guard): string
     {
-        $link = $this->links->find((int) $params['serviceid']);
+        $link = $this->links->forService((int) $params['serviceid']);
         if ($link === null || !$link->isLinked() || $link->state === ServiceLink::STATE_TERMINATED) {
             return self::withoutPortal($link);
         }

@@ -179,6 +179,13 @@ page: an administrator's Unsuspend lifts it.
   it with **Link existing portal**. Leave the portal address as it is until that run: a run on a
   changed address still looks at the old one first, and links the portal it finds there rather than
   make a second.
+- **"…was made for a WHMCS service since deleted…"**: WHMCS gave this service the id of a deleted
+  service whose portal is still live. MySQL 5.7 and MariaDB before 10.2.4 can reuse the newest id
+  after a restart, and an import can too. The plugin knows each service by the WHMCS order it came
+  from, so it leaves that portal alone and refuses every action on the service until you click
+  **Unlink (keeps the portal)**; Create then gives the service a portal of its own. The old portal
+  stays live and on the dashboard until you link it to the service it belongs to with **Link
+  existing portal**, or delete it in the Sign.net console.
 - **"The API key lacks a scope"**: create a key with all three scopes and paste it into the server's
   Password field.
 - **Token minting is paused**: Sign.net allows five tokens per fifteen minutes per address, and the
@@ -189,7 +196,9 @@ page: an administrator's Unsuspend lifts it.
 ## Upgrading
 
 Copy the new release's module folders over the old ones. WHMCS runs the addon's upgrade when its
-version changes, which adds any new tables or columns and never removes any.
+version changes, which adds any new tables or columns and never removes any. It also records the
+WHMCS order each existing link's service came from, so that a newer service WHMCS gives a deleted
+service's id never takes over its portal.
 
 ## WHMCS 8.13 and 9.0
 

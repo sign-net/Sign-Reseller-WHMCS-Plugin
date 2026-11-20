@@ -8,6 +8,7 @@ use SignNet\ResellerApi\Exception\ApiException;
 use SignNet\ResellerApi\Model\PrivateLabelSummary;
 use SignNet\ResellerApi\ResellerClient;
 use SignNet\Whmcs\Db\Cache;
+use SignNet\Whmcs\Db\OrphanedLinkException;
 use SignNet\Whmcs\Db\ServiceLink;
 use SignNet\Whmcs\Db\ServiceRepository;
 use SignNet\Whmcs\Db\WhmcsServices;
@@ -36,6 +37,7 @@ final class CustomActions
      * @param array<string, mixed> $params
      *
      * @throws PlanException
+     * @throws OrphanedLinkException
      * @throws ApiException
      */
     public function refresh(array $params): string
@@ -55,6 +57,7 @@ final class CustomActions
      * @param array<string, mixed> $params
      *
      * @throws PlanException
+     * @throws OrphanedLinkException
      * @throws ApiException
      */
     public function retryDomainAttach(array $params): string
@@ -80,6 +83,7 @@ final class CustomActions
      * @param array<string, mixed> $params
      *
      * @throws PlanException
+     * @throws OrphanedLinkException
      * @throws ApiException
      */
     public function resendOwnerInvite(array $params): string
@@ -105,12 +109,14 @@ final class CustomActions
      *
      * @param array<string, mixed> $params
      *
+     * @throws OrphanedLinkException
      * @throws ApiException
      */
     public function linkPortal(array $params): string
     {
         $serviceId = (int) $params['serviceid'];
-        $link = $this->links->find($serviceId) ?? new ServiceLink($serviceId, (int) ($params['serverid'] ?? 0));
+        $link = $this->links->forService($serviceId)
+            ?? new ServiceLink($serviceId, (int) ($params['serverid'] ?? 0));
         if ($link->isLinked()) {
             return 'This service already manages a portal. Unlink it first.';
         }
@@ -142,7 +148,9 @@ final class CustomActions
     }
 
     /**
-     * Stops the service managing its portal, leaving the portal itself as it is.
+     * Stops the service managing its portal, leaving the portal itself as it is. It also unlinks the
+     * portal a deleted service left on the id WHMCS has given this one, so that this service can have
+     * its own.
      *
      * @param array<string, mixed> $params
      *
@@ -150,7 +158,7 @@ final class CustomActions
      */
     public function unlinkPortal(array $params): string
     {
-        $link = $this->linked($params);
+        $link = self::managing($this->links->find((int) $params['serviceid']));
         $this->links->save($link->with([
             'tenantId' => null,
             'state' => ServiceLink::STATE_UNLINKED,
@@ -177,6 +185,7 @@ final class CustomActions
      * @param array<string, mixed> $params
      *
      * @throws PlanException
+     * @throws OrphanedLinkException
      * @throws ApiException
      */
     public function checkDomain(array $params): string
@@ -201,10 +210,18 @@ final class CustomActions
      * @param array<string, mixed> $params
      *
      * @throws PlanException When the service manages no portal.
+     * @throws OrphanedLinkException
      */
     private function linked(array $params): ServiceLink
     {
-        $link = $this->links->find((int) $params['serviceid']);
+        return self::managing($this->links->forService((int) $params['serviceid']));
+    }
+
+    /**
+     * @throws PlanException When the link manages no portal.
+     */
+    private static function managing(?ServiceLink $link): ServiceLink
+    {
         if ($link === null || !$link->isLinked()) {
             throw new PlanException('This service has no Sign.net portal.');
         }

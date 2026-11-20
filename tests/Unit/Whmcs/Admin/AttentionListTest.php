@@ -142,6 +142,25 @@ final class AttentionListTest extends DatabaseTestCase
     }
 
     #[Test]
+    public function itListsTheLivePortalOfADeletedServiceWhoseIdWhmcsGaveToANewerOne(): void
+    {
+        $this->service(118, 'Active', self::live('t-118'));
+        $this->service(119, 'Active', ['tenantId' => 't-119', 'state' => ServiceLink::STATE_TERMINATED]);
+        Capsule::table('tblhosting')->whereIn('id', [118, 119])->update(['orderid' => 640]);
+
+        $items = (new AttentionList())->build([self::label('t-118', TenantStatus::ACTIVE)], []);
+
+        self::assertSame(['#118 WHMCS service deleted, portal still live'], self::summaries($items));
+        self::assertSame(
+            ['WHMCS has given the deleted service\'s id to a newer service, which leaves this portal alone. Click '
+                . '"Unlink (keeps the portal)" on service #118, then terminate the portal (tenant t-118) in Sign.net, '
+                . 'or link it to another service.'],
+            $items[0]->details,
+        );
+        self::assertSame('clientsservices.php?userid=7&id=118', $items[0]->serviceUrl());
+    }
+
+    #[Test]
     public function itSkipsTheComparisonsWithSignNetWhenItsListIsUnavailable(): void
     {
         $this->service(101, 'Active', self::live('t-101'));

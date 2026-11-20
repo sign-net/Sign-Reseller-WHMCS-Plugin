@@ -22,6 +22,8 @@ abstract class ModuleTestCase extends DatabaseTestCase
     protected const ACCESS_TOKEN = 'minted.jwt.token';
     protected const SERVICE_ID = 101;
     protected const CLIENT_ID = 7;
+    /** The WHMCS order that made service 101. */
+    protected const ORDER_ID = 500;
 
     /** What a run that starts without an access token calls first: a token, then the reseller's slug. */
     protected const FIRST_CALLS = [SignNetResponses::TOKEN_CALL, SignNetResponses::DASHBOARD_CALL];
@@ -102,11 +104,15 @@ abstract class ModuleTestCase extends DatabaseTestCase
         ], $overrides);
     }
 
-    protected function insertService(int $serviceId = self::SERVICE_ID, string $status = 'Pending'): void
-    {
+    protected function insertService(
+        int $serviceId = self::SERVICE_ID,
+        string $status = 'Pending',
+        int $orderId = self::ORDER_ID,
+    ): void {
         Capsule::table('tblhosting')->insert([
             'id' => $serviceId,
             'userid' => self::CLIENT_ID,
+            'orderid' => $orderId,
             'packageid' => 3,
             'server' => $this->serverId,
             'domainstatus' => $status,

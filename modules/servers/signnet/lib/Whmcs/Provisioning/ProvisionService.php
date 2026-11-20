@@ -17,6 +17,7 @@ use SignNet\ResellerApi\Model\ProvisionRequest;
 use SignNet\ResellerApi\Model\Warning;
 use SignNet\ResellerApi\ResellerClient;
 use SignNet\Whmcs\Db\NamedLock;
+use SignNet\Whmcs\Db\OrphanedLinkException;
 use SignNet\Whmcs\Db\ServiceLink;
 use SignNet\Whmcs\Db\ServiceRepository;
 use SignNet\Whmcs\Db\WhmcsServices;
@@ -68,7 +69,7 @@ final class ProvisionService
                 return 'Choose a Sign.net package in the product\'s Module Settings.';
             }
             $order = OrderDetails::fromParams($params);
-            $link = $this->links->find((int) $params['serviceid'])
+            $link = $this->links->forService((int) $params['serviceid'])
                 ?? new ServiceLink((int) $params['serviceid'], (int) ($params['serverid'] ?? 0));
             if ($link->isLinked() && $link->state !== ServiceLink::STATE_TERMINATED) {
                 WhmcsServices::showPortal($link);
@@ -93,7 +94,7 @@ final class ProvisionService
             if ($product->packageId === null) {
                 return 'Choose a Sign.net package in the product\'s Module Settings.';
             }
-            $link = $this->links->find((int) $params['serviceid']);
+            $link = $this->links->forService((int) $params['serviceid']);
             if ($link === null || !$link->isLinked()) {
                 return 'This service has no Sign.net portal yet.';
             }
@@ -105,10 +106,13 @@ final class ProvisionService
     /**
      * Lets the service's next run go past the allowance. That run uses the approval up, whether it
      * succeeds, fails or is held again, so a later change of plan is never confirmed with it.
+     *
+     * @throws PlanException
+     * @throws OrphanedLinkException
      */
     public function approveOverAllowance(int $serviceId): void
     {
-        $link = $this->links->find($serviceId);
+        $link = $this->links->forService($serviceId);
         if ($link === null) {
             throw new PlanException('This service has not been provisioned yet, so there is nothing to approve.');
         }
@@ -124,7 +128,7 @@ final class ProvisionService
         $run = static function () use ($work): string {
             try {
                 return $work();
-            } catch (InvalidOrderException | PlanException $exception) {
+            } catch (InvalidOrderException | PlanException | OrphanedLinkException $exception) {
                 return $exception->getMessage();
             } catch (ApiException $exception) {
                 return ErrorText::describe($exception);

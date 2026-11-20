@@ -8,11 +8,34 @@ use WHMCS\Database\Capsule;
 
 final class ServiceRepository
 {
+    /**
+     * The link saved under this service id, whichever service it was made for.
+     */
     public function find(int $serviceId): ?ServiceLink
     {
         $row = Rows::first(Capsule::table(Schema::SERVICES)->where('service_id', $serviceId));
 
         return $row === null ? null : ServiceLink::fromRow($row);
+    }
+
+    /**
+     * The service's link. WHMCS can give a deleted service's id to a newer service, and a link the
+     * deleted service left is not the newer one's: while it manages a live portal it is refused, so
+     * the newer service never takes that portal over, and otherwise the newer service has no link.
+     *
+     * @throws OrphanedLinkException
+     */
+    public function forService(int $serviceId): ?ServiceLink
+    {
+        $link = $this->find($serviceId);
+        if ($link === null || $link->isForOrder(WhmcsServices::orderId($serviceId))) {
+            return $link;
+        }
+        if ($link->isLive()) {
+            throw new OrphanedLinkException($link);
+        }
+
+        return null;
     }
 
     public function findByTenant(string $tenantId): ?ServiceLink
@@ -49,11 +72,15 @@ final class ServiceRepository
         );
     }
 
+    /**
+     * Saves the link. A link saved for the first time records the WHMCS order of its service.
+     */
     public function save(ServiceLink $link): ServiceLink
     {
         $now = time();
-        $saved = $link->with([
-            'createdAt' => $link->createdAt > 0 ? $link->createdAt : $now,
+        $saved = $link->createdAt > 0 ? $link->with(['updatedAt' => $now]) : $link->with([
+            'orderId' => $link->orderId ?? WhmcsServices::orderId($link->serviceId),
+            'createdAt' => $now,
             'updatedAt' => $now,
         ]);
         Capsule::table(Schema::SERVICES)->updateOrInsert(
