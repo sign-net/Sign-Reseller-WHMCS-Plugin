@@ -135,14 +135,18 @@ final class LifecycleServiceTest extends ModuleTestCase
     #[Test]
     public function anAdministratorLiftsASuspensionMadeOutsideWhmcs(): void
     {
-        $this->links->save($this->link()->withPortalSuspension(true));
         $this->queueToken();
+        $this->transport->queueData(self::suspendedSince(time() - 3600, 'Abuse: phishing documents reported'));
         $this->transport->queueData(self::active());
 
+        $this->service()->suspend($this->params(['suspendreason' => 'Overdue on Payment']));
         $result = $this->service()->unsuspend($this->params(), true);
 
         self::assertSame('success', $result);
-        self::assertSame([...self::FIRST_CALLS, 'POST ' . R::LABEL . '/unsuspend'], $this->calls());
+        self::assertSame(
+            [...self::FIRST_CALLS, 'POST ' . R::LABEL . '/suspend', 'POST ' . R::LABEL . '/unsuspend'],
+            $this->calls(),
+        );
         self::assertSame(ServiceLink::STATE_ACTIVE, $this->link()->state);
         self::assertNull($this->link()->suspendedOutsideAt);
         self::assertContains(
