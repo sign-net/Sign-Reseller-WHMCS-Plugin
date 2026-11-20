@@ -739,13 +739,14 @@ Run “Terminate” on the p06 service.
 3. On the addon's Packages page, click “Archive” on QA1-HUGE.
 4. On the service, click “Approve over-allowance & retry”.
 5. Click “Activate” on QA1-HUGE. On the service, run “Change Package” again.
-6. Terminate p10.
+6. Click “Refresh from Sign.net”.
+7. Terminate p10.
 
 - [ ] Step 2 is held, with the same message as H5's step 2.
 - [ ] Step 4 answers “The package QA1-HUGE is archived in Sign.net.”
 - [ ] Step 5 is held again, with the same message: the run in step 4 used the approval up, although it failed.
-- [ ] After step 5, “Package” still reads “QA Starter (QA1-START)”.
-- [ ] After step 6, Documents' “Remaining” is R again.
+- [ ] After step 6, “Package” still reads “QA Starter (QA1-START)”.
+- [ ] After step 7, Documents' “Remaining” is R again.
 
 ### I. Logs and safety
 
