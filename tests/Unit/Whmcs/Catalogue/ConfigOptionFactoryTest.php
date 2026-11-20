@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace SignNet\Tests\Unit\Whmcs\Catalogue;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use SignNet\ResellerApi\Model\Addon;
 use SignNet\Tests\Support\DatabaseTestCase;
@@ -44,6 +45,79 @@ final class ConfigOptionFactoryTest extends DatabaseTestCase
             [$row['optionname'], (string) $row['optiontype'], (int) $row['qtyminimum'], (int) $row['qtymaximum']],
         );
         self::assertSame([$this->starterId], $option->linkedProductIds);
+    }
+
+    #[Test]
+    public function itStoresTheAddonsNameHtmlEncodedAsWhmcsStoresText(): void
+    {
+        $addon = self::addon(['code' => 'seats5', 'name' => '<b>Seats</b> & "more" &amp;']);
+
+        $option = (new ConfigOptionFactory())->save($addon, 50, []);
+
+        $group = Rows::first(Capsule::table('tblproductconfiggroups')->where('id', $option->groupId));
+        $row = Rows::first(Capsule::table('tblproductconfigoptions')->where('id', $option->optionId));
+        $subOption = Rows::first(Capsule::table('tblproductconfigoptionssub')->where('configid', $option->optionId));
+        $encoded = '&lt;b&gt;Seats&lt;/b&gt; &amp; &quot;more&quot; &amp;amp;';
+        self::assertSame(
+            ['Sign.net add-on: ' . $encoded, 'Sells Sign.net add-on SEATS5 by the unit.'],
+            [$group['name'] ?? null, $group['description'] ?? null],
+        );
+        self::assertSame('addon_SEATS5|' . $encoded, $row['optionname'] ?? null);
+        self::assertSame($encoded, $subOption['optionname'] ?? null);
+        self::assertSame('Sign.net add-on: <b>Seats</b> & "more" &amp;', $option->groupName);
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function codesAnOptionCannotCarry(): iterable
+    {
+        yield 'markup' => ['<b>SEATS</b>'];
+        yield 'the separator' => ['SEATS|5'];
+        yield 'a dot' => ['QA1.SEATS'];
+        yield 'a space' => ['SEATS 5'];
+        yield 'a letter beyond A to Z' => ['SITZPLÄTZE'];
+    }
+
+    #[Test]
+    #[DataProvider('codesAnOptionCannotCarry')]
+    public function itCreatesNoOptionForACodeTheModuleCouldNotReadBack(string $code): void
+    {
+        try {
+            (new ConfigOptionFactory())->save(self::addon(['code' => $code]), 50, [$this->starterId]);
+            self::fail('An option was created for a code the module cannot read back.');
+        } catch (CatalogueException $refusal) {
+            self::assertStringContainsString(
+                'cannot be sold as a configurable option: the module only reads codes made of the letters A to Z, '
+                . 'digits, hyphens and underscores.',
+                $refusal->getMessage(),
+            );
+        }
+        self::assertSame(0, Capsule::table('tblproductconfiggroups')->count());
+        self::assertSame(0, Capsule::table('tblproductconfigoptions')->count());
+    }
+
+    #[Test]
+    public function itStillSavesAnExistingOptionWhoseCodeItWouldNotCreate(): void
+    {
+        $groupId = Capsule::table('tblproductconfiggroups')->insertGetId(['name' => 'Extras', 'description' => '']);
+        Capsule::table('tblproductconfigoptions')->insert([
+            'gid' => $groupId,
+            'optionname' => 'addon_QA1.SEATS|Extra seats',
+            'optiontype' => '4',
+            'qtyminimum' => 0,
+            'qtymaximum' => 10,
+            'order' => 0,
+            'hidden' => 0,
+        ]);
+
+        $option = (new ConfigOptionFactory())->save(self::addon(['code' => 'QA1.SEATS']), 20, [$this->starterId]);
+
+        self::assertSame([$groupId, 20, [$this->starterId]], [
+            $option->groupId,
+            $option->maxQuantity,
+            $option->linkedProductIds,
+        ]);
     }
 
     #[Test]
@@ -95,7 +169,10 @@ final class ConfigOptionFactoryTest extends DatabaseTestCase
     #[Test]
     public function itFindsAnOptionWhoseCodeWasTypedInLowerCase(): void
     {
-        $groupId = Capsule::table('tblproductconfiggroups')->insertGetId(['name' => 'Extras', 'description' => '']);
+        $groupId = Capsule::table('tblproductconfiggroups')->insertGetId([
+            'name' => 'Extras &amp; more',
+            'description' => '',
+        ]);
         Capsule::table('tblproductconfigoptions')->insert([
             'gid' => $groupId,
             'optionname' => 'addon_seats5|Extra seats',
@@ -109,19 +186,15 @@ final class ConfigOptionFactoryTest extends DatabaseTestCase
         $option = (new ConfigOptionFactory())->find('SEATS5');
 
         self::assertNotNull($option);
-        self::assertSame('Extras', $option->groupName);
+        self::assertSame('Extras & more', $option->groupName, 'Read back as the administrator typed it.');
         self::assertNull((new ConfigOptionFactory())->find('SEATS50'));
     }
 
     #[Test]
     public function itWritesNothingForAnAddonInACurrencyWhmcsDoesNotHave(): void
     {
-        $data = ApiFixtures::addon();
-        $data['addon'] = ['currency' => 'EUR'] + (array) $data['addon'];
-        $addon = Addon::fromArray($data);
-
         try {
-            (new ConfigOptionFactory())->save($addon, 50, [$this->starterId]);
+            (new ConfigOptionFactory())->save(self::addon(['currency' => 'EUR']), 50, [$this->starterId]);
             self::fail('An add-on priced in a currency WHMCS lacks was turned into an option.');
         } catch (CatalogueException $refusal) {
             self::assertStringContainsString('WHMCS has no EUR currency', $refusal->getMessage());
@@ -130,8 +203,14 @@ final class ConfigOptionFactoryTest extends DatabaseTestCase
         self::assertSame(0, Capsule::table('tblproductconfiglinks')->count());
     }
 
-    private static function addon(): Addon
+    /**
+     * @param array<string, mixed> $summary Overrides of the add-on's catalogue row.
+     */
+    private static function addon(array $summary = []): Addon
     {
-        return Addon::fromArray(ApiFixtures::addon());
+        $data = ApiFixtures::addon();
+        $data['addon'] = $summary + (array) $data['addon'];
+
+        return Addon::fromArray($data);
     }
 }

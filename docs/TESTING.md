@@ -57,7 +57,7 @@ Use these values, so the messages you see match this guide.
 | What | Values |
 |---|---|
 | Your own packages | `QA1-START` “QA Starter”: Monthly, base price 19.00, Documents 100, Seats 5, Templates 3.<br>`QA1-PRO` “QA Pro”: Monthly, base price 49.00, Documents 500, Seats 20, Templates 10, Notarisations 20. |
-| Add-on | `QA1-SEATS` “5 extra seats”: Monthly, 5.00 per unit, grants Seats 5. |
+| Add-ons | `QA1-SEATS` “5 extra seats”: Monthly, 5.00 per unit, grants Seats 5.<br>`QA1-TAGS`, named `<i>QA</i> & "tags" &amp;`: Monthly, 1.00 per unit, grants Seats 1 (B10).<br>`QA1.DOT` “QA dot”: Monthly, 1.00 per unit, grants Seats 1 (B11). |
 | Portal addresses | `p01.qa1-dns.example.com` for the first portal (C2). Then `p02.qa1.example.com` to `p12.qa1.example.com`, as each case says. Only p01 needs DNS. |
 
 ### On Sign.net staging
@@ -306,6 +306,40 @@ On QA1-PRO, click “Archive”, then “Activate”.
     triennially, with no setup fees.
 - [ ] Opening the page again says “This add-on is sold through option group "Sign.net add-on: 5 extra seats".”,
   and its button reads “Save”.
+
+**B10 · high · An add-on's name shows as typed**
+
+1. Go to Add-ons → “New add-on”, and create `qa1-tags` with the values from [Test data](#test-data), typing
+   its name exactly as `<i>QA</i> & "tags" &amp;`. The `&amp;` at the end is typed literally, on purpose, as in
+   C2.
+2. Click “Configurable option” on QA1-TAGS. Set “Maximum quantity” to 5, tick QA Starter, and click “Create
+   configurable option”. Then click “Open the option group”.
+3. As the test client, open the store and add QA Starter with Portal address `p08.qa1.example.com` and the
+   QA1-TAGS option set to 1. Look at the option, the order summary beside it, and the cart. Then empty the
+   cart.
+4. Back on the addon, click “Configurable option” on QA1-TAGS, untick QA Starter, and click “Save”.
+5. As the test client, add QA Starter to the cart again, then empty the cart.
+
+- [ ] Step 2 says “The configurable option is saved in group "Sign.net add-on:
+  `<i>QA</i> & "tags" &amp;`" and offered on 1 product(s).”
+- [ ] The option group is named “Sign.net add-on: `<i>QA</i> & "tags" &amp;`”, and its option
+  `addon_QA1-TAGS|<i>QA</i> & "tags" &amp;`, both exactly as typed.
+- [ ] In step 3, the order form, its summary and the cart show the option as `<i>QA</i> & "tags" &amp;`
+  exactly: the tags as plain text, “QA” not in italics, and the typed `&amp;` still `&amp;`.
+- [ ] Step 4 says “The configurable option is saved in group "Sign.net add-on:
+  `<i>QA</i> & "tags" &amp;`" and offered on 0 product(s).”
+- [ ] In step 5, QA Starter no longer offers the option.
+
+**B11 · normal · An add-on code the module cannot read**
+
+1. Create the add-on `qa1.dot` with the values from [Test data](#test-data).
+2. Click “Configurable option” on QA1.DOT, tick QA Starter, and click “Create configurable option”.
+
+- [ ] Step 1 says “Add-on QA1.DOT was created in Sign.net.”
+- [ ] Step 2 is refused: “Add-on QA1.DOT cannot be sold as a configurable option: the module only reads codes
+  made of the letters A to Z, digits, hyphens and underscores. Create an add-on with such a code to sell it in
+  WHMCS.”
+- [ ] WHMCS has no option group named “Sign.net add-on: QA dot”.
 
 ### C. The first order
 
@@ -882,6 +916,7 @@ secret).
    `p01.qa2-dns.example.com` and `p06.qa2.example.com`. The same test reseller and full key can be used.
    - Add three cases the critical ones rely on: A5 step 2 (for C9's colour), B7 (for B9's second product) and
      E3 (for G1's figures).
+   - Run B10 too: it checks how WHMCS 9.0's order form shows an add-on's name.
    - C8 needs the DNS record for `p01.qa2-dns.example.com`.
 3. Finish with H3, so the reseller gets its allowance back.
 
@@ -895,6 +930,7 @@ fails, the assumption is probably what broke.
 | Running Create through `localAPI('ModuleCreate')` sends the welcome email | H2 |
 | `ClientAreaAllowedFunctions` takes the label => function form | C7 and C8: “Check again” runs |
 | Custom fields reach the module HTML-encoded, so it decodes them | C5 and C9: the typed `&amp;` survives. If WHMCS does not encode, it arrives as `&`. |
+| WHMCS keeps configurable option names HTML-encoded, and its order form and cart print them as stored | B10: the name shows exactly as typed. If WHMCS escaped what it prints, it would show `&lt;i&gt;` and `&amp;amp;`. |
 | Cart custom fields are keyed by field id | C1: the typed address is the one checked |
 | `check_token('WHMCS.admin.default')` refuses a stale token | I2 |
 | The columns of `tblcustomfields`, `tblemailtemplates`, `tblproductconfig*` and `tblpricing` | A1 (the template), B6 and B7 (fields and pricing), B9 (the option group) |

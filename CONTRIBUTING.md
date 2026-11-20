@@ -90,8 +90,9 @@ committed.
   with `(string)`, or prefix the key (`AddonCatalogue` does).
 - **Escape all HTML output** with `Support\Html::escape()`. Only checkout errors use
   `Hooks\CustomerHtml`, because WHMCS has already encoded what customers type there; the plugin's
-  own rows hold plain text. Admin POSTs check `check_token('WHMCS.admin.default')`; client-area POSTs
-  carry the CSRF token.
+  own rows hold plain text. Text written into WHMCS's own tables for WHMCS to show, such as an
+  add-on's configurable option, is encoded too: WHMCS keeps its text encoded and prints it as stored.
+  Admin POSTs check `check_token('WHMCS.admin.default')`; client-area POSTs carry the CSRF token.
 - **Keep it small and plain.** One responsibility per class, functions short enough to read without
   scrolling, names that say what a thing is for, no dead code, and comments only for a why the code
   cannot show.

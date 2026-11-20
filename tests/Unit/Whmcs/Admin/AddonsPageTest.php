@@ -181,6 +181,49 @@ final class AddonsPageTest extends AdminPageTestCase
     }
 
     #[Test]
+    public function itNamesTheOptionGroupAsTheAddonIsNamedOnceSaved(): void
+    {
+        $productId = WhmcsCatalogueSchema::insertProduct('Starter portal', 'signnet');
+        $this->queueToken();
+        $addon = ApiFixtures::addon();
+        $addon['addon'] = ['name' => '<b>Seats</b> & more'] + (array) $addon['addon'];
+        $this->transport->queueData($addon);
+
+        $html = $this->post(['page' => 'addons', 'action' => 'option', 'id' => 'add-1'], [
+            'max_quantity' => '25',
+            'products' => [(string) $productId],
+        ]);
+
+        self::assertStringContainsString(
+            'saved in group &quot;Sign.net add-on: &lt;b&gt;Seats&lt;/b&gt; &amp; more&quot; and offered on 1',
+            $html,
+        );
+    }
+
+    #[Test]
+    public function itExplainsWhyAnAddonsCodeCannotBecomeAnOption(): void
+    {
+        $productId = WhmcsCatalogueSchema::insertProduct('Starter portal', 'signnet');
+        $this->queueToken();
+        $addon = ApiFixtures::addon();
+        $addon['addon'] = ['code' => 'QA1.SEATS'] + (array) $addon['addon'];
+        $this->transport->queueData($addon);
+
+        $html = $this->post(['page' => 'addons', 'action' => 'option', 'id' => 'add-1'], [
+            'max_quantity' => '25',
+            'products' => [(string) $productId],
+        ]);
+
+        self::assertStringContainsString(
+            '<div class="alert alert-danger">Add-on QA1.SEATS cannot be sold as a configurable option: the module '
+            . 'only reads codes made of the letters A to Z, digits, hyphens and underscores. Create an add-on with '
+            . 'such a code to sell it in WHMCS.</div>',
+            $html,
+        );
+        self::assertNull((new ConfigOptionFactory())->find('QA1.SEATS'));
+    }
+
+    #[Test]
     public function itCreatesTheConfigurableOptionForAnAddon(): void
     {
         $productId = WhmcsCatalogueSchema::insertProduct('Starter portal', 'signnet');

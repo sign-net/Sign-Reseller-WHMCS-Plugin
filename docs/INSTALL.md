@@ -97,8 +97,9 @@ seats). Then click **Configurable option** on its row, tick the products that of
 module attaches that many units to their portal.
 
 The configurable option is named `addon_<CODE>|<Name>`. Keep the part before the `|`: it is how the
-module finds the add-on. Once an add-on has been attached to any portal, what it grants is fixed;
-its price can still change.
+module finds the add-on, which is also why only an add-on whose code is made of the letters A to Z,
+digits, hyphens and underscores can be sold this way. Once an add-on has been attached to any
+portal, what it grants is fixed; its price can still change.
 
 ## 6. The welcome email
 
