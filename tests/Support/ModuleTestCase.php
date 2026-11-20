@@ -8,6 +8,8 @@ use SignNet\ResellerApi\Http\Request;
 use SignNet\Tests\Unit\ResellerApi\Fake\FakeSleeper;
 use SignNet\Tests\Unit\ResellerApi\Fake\FakeTransport;
 use SignNet\Whmcs\ClientFactory;
+use SignNet\Whmcs\Db\ServiceLink;
+use SignNet\Whmcs\Db\ServiceRepository;
 use WHMCS\Database\Capsule;
 
 /**
@@ -22,6 +24,8 @@ abstract class ModuleTestCase extends DatabaseTestCase
     protected const ACCESS_TOKEN = 'minted.jwt.token';
     protected const SERVICE_ID = 101;
     protected const CLIENT_ID = 7;
+    /** The WHMCS order that made service 101. */
+    protected const ORDER_ID = 500;
 
     /** What a run that starts without an access token calls first: a token, then the reseller's slug. */
     protected const FIRST_CALLS = [SignNetResponses::TOKEN_CALL, SignNetResponses::DASHBOARD_CALL];
@@ -51,13 +55,21 @@ abstract class ModuleTestCase extends DatabaseTestCase
      */
     protected function queueToken(): void
     {
+        $this->queueAccessToken();
+        $this->transport->queueData(SignNetResponses::dashboard());
+    }
+
+    /**
+     * Sign.net's answer to minting the access token alone.
+     */
+    protected function queueAccessToken(): void
+    {
         $this->transport->queueJson(200, [
             'access_token' => self::ACCESS_TOKEN,
             'token_type' => 'Bearer',
             'expires_in' => 3600,
             'scope' => 'reseller:read reseller:provision reseller:packages',
         ]);
-        $this->transport->queueData(SignNetResponses::dashboard());
     }
 
     /**
@@ -94,15 +106,38 @@ abstract class ModuleTestCase extends DatabaseTestCase
         ], $overrides);
     }
 
-    protected function insertService(int $serviceId = self::SERVICE_ID, string $status = 'Pending'): void
-    {
+    protected function insertService(
+        int $serviceId = self::SERVICE_ID,
+        string $status = 'Pending',
+        int $orderId = self::ORDER_ID,
+    ): void {
         Capsule::table('tblhosting')->insert([
             'id' => $serviceId,
             'userid' => self::CLIENT_ID,
+            'orderid' => $orderId,
             'packageid' => 3,
             'server' => $this->serverId,
             'domainstatus' => $status,
         ]);
+    }
+
+    /**
+     * Links service 101 to the portal SignNetResponses::label() describes, as Create leaves it.
+     */
+    protected function linkPortal(string $state = ServiceLink::STATE_ACTIVE): void
+    {
+        (new ServiceRepository())->save(new ServiceLink(
+            self::SERVICE_ID,
+            $this->serverId,
+            SignNetResponses::TENANT_ID,
+            SignNetResponses::HOST,
+            'Acme Sign',
+            state: $state,
+            packageState: ServiceLink::PACKAGE_ASSIGNED,
+        ));
+        Capsule::table('tblhosting')
+            ->where('id', self::SERVICE_ID)
+            ->update(['username' => SignNetResponses::TENANT_ID]);
     }
 
     /**

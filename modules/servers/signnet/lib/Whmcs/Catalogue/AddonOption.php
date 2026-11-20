@@ -10,6 +10,7 @@ namespace SignNet\Whmcs\Catalogue;
 final class AddonOption
 {
     /**
+     * @param string $groupName Plain text, decoded from WHMCS's HTML-encoded copy.
      * @param list<int> $linkedProductIds The products whose orders offer it.
      */
     public function __construct(

@@ -18,6 +18,9 @@ use SignNet\Whmcs\Support\Html;
  */
 final class ConfigOptionActions
 {
+    /** WHMCS reads a maximum of 0 as no limit at all. */
+    public const LEAST_MAX_QUANTITY = 1;
+
     private readonly ConfigOptionFactory $options;
 
     public function __construct(private readonly SignNetServer $server)
@@ -43,7 +46,11 @@ final class ConfigOptionActions
         try {
             $option = $this->options->save(
                 $addon,
-                FormNumbers::wholeNumber('Maximum quantity', $request->post('max_quantity')),
+                FormNumbers::wholeNumber(
+                    'Maximum quantity',
+                    $request->post('max_quantity'),
+                    self::LEAST_MAX_QUANTITY,
+                ),
                 $request->postIds('products'),
             );
         } catch (\Exception $error) {

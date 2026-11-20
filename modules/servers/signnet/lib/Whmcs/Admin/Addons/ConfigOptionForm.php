@@ -28,8 +28,12 @@ final class ConfigOptionForm
             : (string) ($option->maxQuantity ?? self::DEFAULT_MAX_QUANTITY);
         $fields = AdminHtml::field(
             'Maximum quantity',
-            AdminHtml::input('max_quantity', $maxQuantity, ['type' => 'number', 'min' => '0']),
-            'The most units one order can take. Customers can always choose 0.',
+            AdminHtml::input('max_quantity', $maxQuantity, [
+                'type' => 'number',
+                'min' => (string) ConfigOptionActions::LEAST_MAX_QUANTITY,
+            ]),
+            'The most units one order can take: 1 or more, because WHMCS reads a maximum of 0 as no limit. '
+            . 'Customers can always choose 0. To stop selling the add-on, untick every product under "Offer it on".',
         ) . self::productChoices($request, $option);
 
         return '<h2>' . Html::escape(sprintf('Sell %s (%s) in WHMCS', $addon->name, $addon->code)) . '</h2>'

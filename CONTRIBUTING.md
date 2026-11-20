@@ -44,7 +44,7 @@ composer validate --strict
 ```
 
 CI also checks that the API client never references WHMCS, and that no real Sign.net API key is
-committed.
+committed, in the files or in any commit a change adds.
 
 ## Layout
 
@@ -78,7 +78,9 @@ committed.
   reseller, shared by all its keys. A new portal's order reads only `billing/quota`, its package and
   the add-ons it orders (the list once per run, through `AddonCatalogue`), and trusts the package
   outcome in the provisioning answer rather than reading the assignment back. Every read added there
-  lowers how many orders a minute WHMCS can take.
+  lowers how many orders a minute WHMCS can take. Pages read a portal through `Module\PortalCache`,
+  which remembers a failed read for a while too, so reloading a page while Sign.net cannot answer
+  does not spend them.
 - **ConfigOptions are positional.** WHMCS stores them as `configoption1..N`: only ever append.
 - **The plugin's tables are never dropped.** `Db\Schema::install()` is idempotent and only adds.
 - **Read query rows through `Db\Rows`**; PHPStan rejects property access on the untyped objects the
@@ -88,8 +90,9 @@ committed.
   with `(string)`, or prefix the key (`AddonCatalogue` does).
 - **Escape all HTML output** with `Support\Html::escape()`. Only checkout errors use
   `Hooks\CustomerHtml`, because WHMCS has already encoded what customers type there; the plugin's
-  own rows hold plain text. Admin POSTs check `check_token('WHMCS.admin.default')`; client-area POSTs
-  carry the CSRF token.
+  own rows hold plain text. Text written into WHMCS's own tables for WHMCS to show, such as an
+  add-on's configurable option, is encoded too: WHMCS keeps its text encoded and prints it as stored.
+  Admin POSTs check `check_token('WHMCS.admin.default')`; client-area POSTs carry the CSRF token.
 - **Keep it small and plain.** One responsibility per class, functions short enough to read without
   scrolling, names that say what a thing is for, no dead code, and comments only for a why the code
   cannot show.

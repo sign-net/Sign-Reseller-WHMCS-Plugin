@@ -58,7 +58,7 @@ What changed in each version is in [CHANGELOG.md](CHANGELOG.md).
 | WHMCS | Sign.net |
 |---|---|
 | Order paid (auto-setup) or **Create** | Portal created on the "Portal address" custom field (or the domain), with its owner (the client), the product's package and the add-ons the customer chose. The owner gets Sign.net's set-password email. |
-| **Suspend** / **Unsuspend** | Portal suspended with WHMCS's reason (you and Sign.net see it; the portal's own people never do), or unsuspended. A suspension Sign.net made can only be lifted by Sign.net. |
+| **Suspend** / **Unsuspend** | Portal suspended with WHMCS's reason (you and Sign.net see it; the portal's own people never do), or unsuspended. A suspension Sign.net made can only be lifted by Sign.net. One made in your Sign.net console stays until you lift it there or from WHMCS's admin area: WHMCS's automatic unsuspension after a client pays leaves it. |
 | **Change Package** (upgrade, downgrade, configurable options) | Package swapped and add-on quantities changed to match. |
 | **Terminate** | Portal deleted: you ask for it, or the cron does when the product allows it. This cannot be undone, and the hostname can never be used again. |
 

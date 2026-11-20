@@ -28,7 +28,7 @@ final class WelcomeEmailFields
             return [];
         }
         $relatedId = $vars['relid'] ?? null;
-        $link = is_numeric($relatedId) ? (new ServiceRepository())->find((int) $relatedId) : null;
+        $link = is_numeric($relatedId) ? (new ServiceRepository())->forService((int) $relatedId) : null;
         if ($link === null || !$link->isLinked()) {
             return [];
         }

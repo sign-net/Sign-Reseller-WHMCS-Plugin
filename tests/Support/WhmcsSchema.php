@@ -19,11 +19,13 @@ final class WhmcsSchema
         $schema->create('tblhosting', static function (Blueprint $table): void {
             $table->increments('id');
             $table->unsignedInteger('userid')->default(0);
+            $table->unsignedInteger('orderid')->nullable()->default(0);
             $table->unsignedInteger('packageid')->default(0);
             $table->unsignedInteger('server')->default(0);
             $table->string('domain')->default('');
             $table->string('username')->default('');
             $table->string('domainstatus')->default('Pending');
+            $table->text('suspendreason')->nullable();
         });
 
         $schema->create('tblservers', static function (Blueprint $table): void {

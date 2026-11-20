@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace SignNet\Tests\Unit\Whmcs\Provisioning;
 
 use PHPUnit\Framework\Attributes\Test;
+use SignNet\ResellerApi\Exception\TransportException;
 use SignNet\Tests\Support\ModuleTestCase;
 use SignNet\Tests\Support\SignNetResponses as R;
 use SignNet\Tests\Support\WhmcsFake;
@@ -37,7 +38,7 @@ final class LifecycleServiceTest extends ModuleTestCase
     public function itSuspendsThePortalWithWhmcssReason(): void
     {
         $this->queueToken();
-        $this->transport->queueData(self::suspended());
+        $this->transport->queueData(self::suspendedNow('Overdue on Payment'));
 
         $result = $this->service()->suspend($this->params(['suspendreason' => 'Overdue on Payment']));
 
@@ -45,6 +46,12 @@ final class LifecycleServiceTest extends ModuleTestCase
         self::assertSame([...self::FIRST_CALLS, 'POST ' . R::LABEL . '/suspend'], $this->calls());
         self::assertSame(['reason' => 'Overdue on Payment'], self::bodyOf($this->transport->lastRequest()));
         self::assertSame(ServiceLink::STATE_SUSPENDED, $this->link()->state);
+        self::assertNull($this->link()->suspendedOutsideAt);
+        self::assertSame(time() * 1000, $this->link()->whmcsSuspendedAt, 'When WHMCS\'s suspension began.');
+        self::assertContains(
+            'Sign.net: portal sign.acme.test suspended for service #101.',
+            WhmcsFake::activityMessages(),
+        );
     }
 
     #[Test]
@@ -52,7 +59,7 @@ final class LifecycleServiceTest extends ModuleTestCase
     {
         $this->queueToken();
         $this->transport->queueError(400, 'invalid_request');
-        $this->transport->queueData(self::suspended());
+        $this->transport->queueData(self::suspendedNow(null));
 
         $result = $this->service()->suspend($this->params(['suspendreason' => 'Overdue']));
 
@@ -60,6 +67,7 @@ final class LifecycleServiceTest extends ModuleTestCase
         self::assertSame(['reason' => 'Overdue'], self::bodyOf($this->requestsTo('POST ' . R::LABEL . '/suspend')[0]));
         self::assertSame([], self::bodyOf($this->transport->lastRequest()));
         self::assertSame(ServiceLink::STATE_SUSPENDED, $this->link()->state);
+        self::assertNull($this->link()->suspendedOutsideAt, 'The suspension without a reason is still WHMCS\'s.');
         self::assertContains(
             'Sign.net refused the suspension reason, so the portal was suspended without it.',
             WhmcsFake::activityMessages(),
@@ -70,38 +78,379 @@ final class LifecycleServiceTest extends ModuleTestCase
     public function itCutsALongReasonToWhatSignNetKeeps(): void
     {
         $this->queueToken();
-        $this->transport->queueData(self::suspended());
+        $this->transport->queueData(self::suspendedNow(str_repeat("\u{1F600}", 250)));
 
         $this->service()->suspend($this->params(['suspendreason' => str_repeat("\u{1F600}", 400)]));
 
         self::assertSame(['reason' => str_repeat("\u{1F600}", 250)], self::bodyOf($this->transport->lastRequest()));
+        self::assertNull($this->link()->suspendedOutsideAt);
     }
 
     #[Test]
-    public function itUnsuspendsThePortal(): void
+    public function aLongReasonCutJustAfterASpaceIsStillWhmcss(): void
     {
         $this->queueToken();
-        $this->transport->queueData(
-            ['status' => 'Active', 'suspendedAt' => null, 'suspendedBy' => null] + ApiFixtures::suspensionState(),
-        );
+        $this->transport->queueData(self::suspendedNow(str_repeat('a', 499)));
 
-        self::assertSame('success', $this->service()->unsuspend($this->params()));
+        $this->service()->suspend($this->params(['suspendreason' => str_repeat('a', 499) . ' and the rest']));
+
+        self::assertSame(['reason' => str_repeat('a', 499)], self::bodyOf($this->transport->lastRequest()));
+        self::assertNull($this->link()->suspendedOutsideAt);
+    }
+
+    #[Test]
+    public function aReasonEndingInANoBreakSpaceIsStillWhmcss(): void
+    {
+        $this->queueToken();
+        $this->transport->queueData(self::suspendedNow('Overdue on Payment'));
+
+        $this->service()->suspend($this->params(['suspendreason' => "Overdue on Payment\u{00A0}"]));
+
+        self::assertSame(['reason' => 'Overdue on Payment'], self::bodyOf($this->transport->lastRequest()));
+        self::assertNull($this->link()->suspendedOutsideAt);
+    }
+
+    #[Test]
+    public function aSuspensionSignNetsClockPutsALittleBeforeTheCallIsStillWhmcss(): void
+    {
+        $this->queueToken();
+        $this->transport->queueData(self::suspendedSince(time() - 300, 'Overdue on Payment'));
+
+        $this->service()->suspend($this->params(['suspendreason' => 'Overdue on Payment']));
+
+        self::assertNull($this->link()->suspendedOutsideAt);
+    }
+
+    #[Test]
+    public function aSuspensionMadeInTheConsoleIsKeptFromWhmcssAutomaticUnsuspension(): void
+    {
+        $since = time() - 3600;
+        $this->queueToken();
+        $this->transport->queueData(self::suspendedSince($since, 'Abuse: phishing documents reported'));
+        $this->transport->queueData(self::portalSuspendedSince($since, 'Abuse: phishing documents reported'));
+
+        $suspended = $this->service()->suspend($this->params(['suspendreason' => 'Overdue on Payment']));
+        $unsuspended = $this->service()->unsuspend($this->params(), false);
+
+        self::assertSame('success', $suspended, 'The portal is suspended, as WHMCS asked.');
+        self::assertContains(
+            'Sign.net: portal sign.acme.test was already suspended outside WHMCS, and stays so for service #101. '
+                . 'WHMCS does not lift that suspension on its own.',
+            WhmcsFake::activityMessages(),
+        );
+        self::assertSame(
+            'Not unsuspended: the portal was suspended outside WHMCS, so WHMCS does not lift that suspension on its '
+                . 'own. Lift it in the Sign.net console, or unsuspend the service from the WHMCS admin area.',
+            $unsuspended,
+        );
+        self::assertSame([], $this->requestsTo('POST ' . R::LABEL . '/unsuspend'), 'Sign.net is not asked to lift it.');
+        self::assertSame(ServiceLink::STATE_SUSPENDED, $this->link()->state);
+        self::assertNotNull($this->link()->suspendedOutsideAt);
+    }
+
+    #[Test]
+    public function aSuspensionWithWhmcssReasonThatBeganBeforeTheCallIsNotWhmcss(): void
+    {
+        $this->queueToken();
+        $this->transport->queueData(self::suspendedSince(time() - 3600, 'Overdue on Payment'));
+
+        $this->service()->suspend($this->params(['suspendreason' => 'Overdue on Payment']));
+
+        self::assertNotNull($this->link()->suspendedOutsideAt);
+    }
+
+    #[Test]
+    public function aSuspendWhoseAnswerIsLostRemembersWhenItWasSent(): void
+    {
+        $this->queueToken();
+        $this->transport->queue(new TransportException('Operation timed out', true));
+
+        $result = $this->service()->suspend($this->params(['suspendreason' => 'Overdue on Payment']));
+
+        self::assertStringStartsWith('Could not reach Sign.net', $result);
         self::assertSame(ServiceLink::STATE_ACTIVE, $this->link()->state);
+        self::assertGreaterThanOrEqual(time() - 5, (int) $this->link()->suspendAttemptAt);
+    }
+
+    #[Test]
+    public function anotherLostSuspendKeepsTheTimeOfTheFirst(): void
+    {
+        $firstSentAt = time() - 120;
+        $this->links->save($this->link()->with(['suspendAttemptAt' => $firstSentAt]));
+        $this->queueToken();
+        $this->transport->queueError(502, 'bad_gateway');
+
+        $this->service()->suspend($this->params(['suspendreason' => 'Overdue on Payment']));
+
+        self::assertSame($firstSentAt, $this->link()->suspendAttemptAt);
+    }
+
+    #[Test]
+    public function aSuspendSignNetRefusesLeavesNoCallToRemember(): void
+    {
+        $this->queueToken();
+        $this->transport->queueError(403, 'insufficient_scope');
+
+        $result = $this->service()->suspend($this->params(['suspendreason' => 'Overdue on Payment']));
+
+        self::assertStringContainsString('lacks a scope', $result);
+        self::assertNull($this->link()->suspendAttemptAt);
+    }
+
+    #[Test]
+    public function aSuspendRetriedADayAfterItsAnswerWasLostHoldsWhmcssSuspension(): void
+    {
+        $since = time() - 86390;
+        $this->links->save($this->link()->with(['suspendAttemptAt' => time() - 86400]));
+        $this->queueToken();
+        $this->transport->queueData(self::suspendedSince($since, 'Overdue on Payment'));
+        $this->transport->queueData(self::portalSuspendedSince($since, 'Overdue on Payment'));
+        $this->transport->queueData(self::active());
+
+        $suspended = $this->service()->suspend($this->params(['suspendreason' => 'Overdue on Payment']));
+        $link = $this->link();
+        $unsuspended = $this->service()->unsuspend($this->params(), false);
+
+        self::assertSame(['success', 'success'], [$suspended, $unsuspended]);
+        self::assertSame([ServiceLink::STATE_SUSPENDED, null, null], [
+            $link->state,
+            $link->suspendedOutsideAt,
+            $link->suspendAttemptAt,
+        ]);
+        self::assertCount(1, $this->requestsTo('POST ' . R::LABEL . '/unsuspend'), 'WHMCS lifts its own suspension.');
+    }
+
+    #[Test]
+    public function anAdministratorLiftsASuspensionMadeOutsideWhmcs(): void
+    {
+        $this->queueToken();
+        $this->transport->queueData(self::suspendedSince(time() - 3600, 'Abuse: phishing documents reported'));
+        $this->transport->queueData(self::active());
+
+        $this->service()->suspend($this->params(['suspendreason' => 'Overdue on Payment']));
+        $result = $this->service()->unsuspend($this->params(), true);
+
+        self::assertSame('success', $result);
+        self::assertSame(
+            [...self::FIRST_CALLS, 'POST ' . R::LABEL . '/suspend', 'POST ' . R::LABEL . '/unsuspend'],
+            $this->calls(),
+        );
+        self::assertSame(ServiceLink::STATE_ACTIVE, $this->link()->state);
+        self::assertNull($this->link()->suspendedOutsideAt);
+        self::assertContains(
+            'Sign.net: portal sign.acme.test unsuspended for service #101, lifting a suspension made outside WHMCS.',
+            WhmcsFake::activityMessages(),
+        );
+    }
+
+    #[Test]
+    public function itUnsuspendsTheSuspensionWhmcsMade(): void
+    {
+        $since = time();
+        $this->queueToken();
+        $this->transport->queueData(self::suspendedSince($since, 'Overdue on Payment'));
+        $this->transport->queueData(self::portalSuspendedSince($since, 'Overdue on Payment'));
+        $this->transport->queueData(self::active());
+
+        $this->service()->suspend($this->params(['suspendreason' => 'Overdue on Payment']));
+        $result = $this->service()->unsuspend($this->params(), false);
+
+        self::assertSame('success', $result);
+        self::assertSame(
+            [
+                ...self::FIRST_CALLS,
+                'POST ' . R::LABEL . '/suspend',
+                'GET ' . R::LABEL,
+                'POST ' . R::LABEL . '/unsuspend',
+            ],
+            $this->calls(),
+            'WHMCS checks that the suspension is still its own before lifting it.',
+        );
+        self::assertSame(ServiceLink::STATE_ACTIVE, $this->link()->state);
+        self::assertContains(
+            'Sign.net: portal sign.acme.test unsuspended for service #101.',
+            WhmcsFake::activityMessages(),
+        );
+    }
+
+    #[Test]
+    public function automationLeavesASuspensionThatTookThePlaceOfWhmcss(): void
+    {
+        $this->links->save($this->link()->withWhmcsSuspension((time() - 86400) * 1000));
+        $this->queueToken();
+        $this->transport->queueData(self::portalSuspendedSince(time() - 3600, 'Abuse: phishing documents reported'));
+
+        $result = $this->service()->unsuspend($this->params(), false);
+
+        self::assertStringStartsWith('Not unsuspended: the portal was suspended outside WHMCS', $result);
+        self::assertSame([], $this->requestsTo('POST ' . R::LABEL . '/unsuspend'));
+        self::assertNotNull($this->link()->suspendedOutsideAt, 'The dashboard lists it now.');
+    }
+
+    #[Test]
+    public function automationLeavesASuspensionMadeWhileThePortalWasKnownActive(): void
+    {
+        $this->queueToken();
+        $this->transport->queueData(self::portalSuspendedSince(time() - 60, 'Abuse: phishing documents reported'));
+
+        $result = $this->service()->unsuspend($this->params(), false);
+
+        self::assertStringStartsWith('Not unsuspended: the portal was suspended outside WHMCS', $result);
+        self::assertSame([], $this->requestsTo('POST ' . R::LABEL . '/unsuspend'));
+    }
+
+    #[Test]
+    public function automationFindsNothingToLiftOnceTheConsoleLiftedItsSuspension(): void
+    {
+        $this->links->save($this->link()->withOutsideSuspension());
+        $this->queueToken();
+        $this->transport->queueData(R::label(['status' => 'Active', 'suspendedAt' => null, 'suspendedBy' => null]));
+
+        $result = $this->service()->unsuspend($this->params(), false);
+
+        self::assertSame('success', $result, 'The paid service can be active again.');
+        self::assertSame([...self::FIRST_CALLS, 'GET ' . R::LABEL], $this->calls(), 'Nothing is lifted.');
+        self::assertSame([ServiceLink::STATE_ACTIVE, null], [$this->link()->state, $this->link()->suspendedOutsideAt]);
+        self::assertContains(
+            'Sign.net: portal sign.acme.test was no longer suspended, so nothing was lifted for service #101.',
+            WhmcsFake::activityMessages(),
+        );
+    }
+
+    #[Test]
+    public function automationSaysWhenOnlySignNetCanLiftTheSuspension(): void
+    {
+        $this->links->save($this->link()->withWhmcsSuspension((time() - 86400) * 1000));
+        $this->queueToken();
+        $this->transport->queueData(self::portalSuspendedSince(time() - 86400, 'Terms breach', 'Platform'));
+
+        $result = $this->service()->unsuspend($this->params(), false);
+
+        self::assertSame(
+            'Suspended by Sign.net: Terms breach. Only Sign.net can lift this suspension; contact Sign.net support.',
+            $result,
+            'Sign.net took the suspension over.',
+        );
+        self::assertSame([], $this->requestsTo('POST ' . R::LABEL . '/unsuspend'));
+        self::assertNotNull($this->link()->suspendedOutsideAt);
+    }
+
+    #[Test]
+    public function automationLiftsNothingWhenThePortalCannotBeRead(): void
+    {
+        $this->links->save($this->link()->withWhmcsSuspension((time() - 86400) * 1000));
+        $this->queueToken();
+        $this->transport->queueError(500, 'internal_server_error');
+
+        $result = $this->service()->unsuspend($this->params(), false);
+
+        self::assertStringStartsWith('Sign.net could not complete the request (HTTP 500).', $result);
+        self::assertSame([], $this->requestsTo('POST ' . R::LABEL . '/unsuspend'));
+        self::assertSame(ServiceLink::STATE_SUSPENDED, $this->link()->state);
+    }
+
+    #[Test]
+    public function automationLiftsASuspensionAnEarlierVersionRecordedOnlyWithWhmcssReason(): void
+    {
+        $this->links->save($this->link()->with(['state' => ServiceLink::STATE_SUSPENDED]));
+        Capsule::table('tblhosting')->insert([
+            'id' => self::SERVICE_ID,
+            'domainstatus' => 'Suspended',
+            'suspendreason' => 'Overdue on Payment',
+        ]);
+        $this->queueToken();
+        $this->transport->queueData(self::portalSuspendedSince(time() - 86400, 'Abuse: phishing documents reported'));
+        $this->transport->queueData(self::portalSuspendedSince(time() - 86400, 'Overdue on Payment'));
+        $this->transport->queueData(self::active());
+
+        $consoles = $this->service()->unsuspend($this->params(), false);
+        $this->links->save($this->link()->with(['suspendedOutsideAt' => null]));
+        $whmcss = $this->service()->unsuspend($this->params(), false);
+
+        self::assertStringStartsWith('Not unsuspended: the portal was suspended outside WHMCS', $consoles);
+        self::assertSame('success', $whmcss);
+        self::assertCount(1, $this->requestsTo('POST ' . R::LABEL . '/unsuspend'));
+    }
+
+    #[Test]
+    public function aRepeatOfWhmcssOwnSuspensionIsStillWhmcss(): void
+    {
+        $since = time() - 86400;
+        $this->links->save($this->link()->withWhmcsSuspension($since * 1000));
+        $this->queueToken();
+        $this->transport->queueData(self::suspendedSince($since, 'Overdue on Payment'));
+        $this->transport->queueData(self::portalSuspendedSince($since, 'Overdue on Payment'));
+        $this->transport->queueData(self::active());
+
+        $this->service()->suspend($this->params(['suspendreason' => 'Another overdue invoice']));
+        $suspendedOutsideAt = $this->link()->suspendedOutsideAt;
+        $result = $this->service()->unsuspend($this->params(), false);
+
+        self::assertNull($suspendedOutsideAt);
+        self::assertSame('success', $result);
+        self::assertSame(ServiceLink::STATE_ACTIVE, $this->link()->state);
+        self::assertCount(1, $this->requestsTo('POST ' . R::LABEL . '/unsuspend'));
+    }
+
+    #[Test]
+    public function aSuspensionThatTookThePlaceOfWhmcssIsNotWhmcss(): void
+    {
+        $this->links->save($this->link()->withWhmcsSuspension((time() - 86400) * 1000));
+        $this->queueToken();
+        $this->transport->queueData(self::suspendedSince(time() - 3600, 'Abuse: phishing documents reported'));
+
+        $this->service()->suspend($this->params(['suspendreason' => 'Overdue on Payment']));
+
+        self::assertNotNull($this->link()->suspendedOutsideAt, 'The console lifted WHMCS\'s and suspended again.');
+        self::assertNull($this->link()->whmcsSuspendedAt);
+    }
+
+    #[Test]
+    public function aSuspensionAnEarlierVersionRecordedIsWhmcssWhenItHasWhmcssReason(): void
+    {
+        $this->links->save($this->link()->with(['state' => ServiceLink::STATE_SUSPENDED]));
+        Capsule::table('tblhosting')->insert(['id' => self::SERVICE_ID, 'suspendreason' => 'Overdue on Payment ']);
+        $this->queueToken();
+        $this->transport->queueData(self::suspendedSince(time() - 86400, 'Overdue on Payment'));
+        $this->transport->queueData(self::suspendedSince(time() - 86400, 'Abuse: phishing documents reported'));
+
+        $this->service()->suspend($this->params(['suspendreason' => 'Overdue on Payment']));
+        $whmcss = $this->link();
+        $this->links->save($this->link()->with(['state' => ServiceLink::STATE_SUSPENDED, 'whmcsSuspendedAt' => null]));
+        $this->service()->suspend($this->params(['suspendreason' => 'Overdue on Payment']));
+
+        self::assertSame([null, (time() - 86400) * 1000], [$whmcss->suspendedOutsideAt, $whmcss->whmcsSuspendedAt]);
+        self::assertNotNull($this->link()->suspendedOutsideAt, 'The console\'s, which WHMCS suspended over.');
+    }
+
+    #[Test]
+    public function aPortalLiftedInTheConsoleThenSuspendedByWhmcsHoldsWhmcssSuspension(): void
+    {
+        $this->links->save($this->link()->withOutsideSuspension());
+        $this->queueToken();
+        $this->transport->queueData(self::suspendedNow('Overdue on Payment'));
+
+        $this->service()->suspend($this->params(['suspendreason' => 'Overdue on Payment']));
+
+        self::assertSame(ServiceLink::STATE_SUSPENDED, $this->link()->state);
+        self::assertNull($this->link()->suspendedOutsideAt);
     }
 
     #[Test]
     public function itSaysWhenOnlySignNetCanLiftASuspension(): void
     {
+        $this->links->save($this->link()->withOutsideSuspension());
         $this->queueToken();
         $this->transport->queueError(400, 'suspended_by_platform');
         $this->transport->queueData(R::label(['suspendedBy' => 'Platform', 'suspendReason' => 'Terms breach']));
 
-        $result = $this->service()->unsuspend($this->params());
+        $result = $this->service()->unsuspend($this->params(), true);
 
         self::assertSame(
             'Suspended by Sign.net: Terms breach. Only Sign.net can lift this suspension; contact Sign.net support.',
             $result,
         );
+        self::assertNotNull($this->link()->suspendedOutsideAt, 'It is still in force.');
     }
 
     #[Test]
@@ -215,13 +564,54 @@ final class LifecycleServiceTest extends ModuleTestCase
     }
 
     /**
-     * Sign.net's answer to a suspension by the reseller.
+     * Sign.net's answer to a suspend call that made the suspension, giving it $reason.
      *
      * @return array<string, mixed>
      */
-    private static function suspended(): array
+    private static function suspendedNow(?string $reason): array
     {
-        return ['suspendedBy' => 'Reseller'] + ApiFixtures::suspensionState();
+        return self::suspendedSince(time(), $reason);
+    }
+
+    /**
+     * Sign.net's answer when the portal has been suspended by the reseller since $since (Unix
+     * seconds), for $reason.
+     *
+     * @return array<string, mixed>
+     */
+    private static function suspendedSince(int $since, ?string $reason): array
+    {
+        return [
+            'suspendedAt' => $since * 1000,
+            'suspendedBy' => 'Reseller',
+            'suspendReason' => $reason,
+        ] + ApiFixtures::suspensionState();
+    }
+
+    /**
+     * The portal read from Sign.net while it is suspended since $since (Unix seconds) for $reason, by
+     * $by.
+     *
+     * @return array<string, mixed>
+     */
+    private static function portalSuspendedSince(int $since, string $reason, string $by = 'Reseller'): array
+    {
+        return R::label([
+            'status' => 'Suspended',
+            'suspendedAt' => $since * 1000,
+            'suspendedBy' => $by,
+            'suspendReason' => $reason,
+        ]);
+    }
+
+    /**
+     * Sign.net's answer to an unsuspend call.
+     *
+     * @return array<string, mixed>
+     */
+    private static function active(): array
+    {
+        return ['status' => 'Active', 'suspendedAt' => null, 'suspendedBy' => null] + ApiFixtures::suspensionState();
     }
 
     private function service(): LifecycleService

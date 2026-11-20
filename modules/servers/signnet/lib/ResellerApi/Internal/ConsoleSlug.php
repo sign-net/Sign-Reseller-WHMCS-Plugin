@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace SignNet\ResellerApi\Internal;
 
+use SignNet\ResellerApi\Auth\AccessToken;
 use SignNet\ResellerApi\Auth\TokenProvider;
 use SignNet\ResellerApi\Exception\ApiException;
-use SignNet\ResellerApi\Exception\TransportException;
 
 /**
  * The reseller's console slug: the host its /console/{slug}/reseller endpoints are addressed by.
@@ -29,11 +29,14 @@ final class ConsoleSlug
     }
 
     /**
-     * @throws ApiException
+     * @throws ApiException A failure that is not a refusal is reported as never sent: the call that
+     *     needed the slug did not leave, which is what provisioning has to know.
      */
     public function current(): string
     {
-        return $this->tokens->token()->slug ?? $this->learn();
+        $token = BeforeSending::run('get an access token', fn (): AccessToken => $this->tokens->token());
+
+        return $token->slug ?? $this->learn();
     }
 
     /**
@@ -53,22 +56,15 @@ final class ConsoleSlug
     }
 
     /**
-     * @throws ApiException A failed lookup is reported as never sent: the call that needed the
-     *     slug did not leave, which is what provisioning has to know.
+     * @throws ApiException
      */
     private function learn(): string
     {
-        try {
-            $slug = $this->sender->send('GET', self::DASHBOARD_PATH, null, $this->timeoutSeconds)
-                ->data(self::slugOf(...));
-        } catch (TransportException $exception) {
-            throw new TransportException(
-                'Could not learn the reseller console address: ' . $exception->getMessage(),
-                false,
-                $exception->requestId,
-                $exception,
-            );
-        }
+        $slug = BeforeSending::run(
+            'learn the reseller console address',
+            fn (): string => $this->sender->send('GET', self::DASHBOARD_PATH, null, $this->timeoutSeconds)
+                ->data(self::slugOf(...)),
+        );
         $this->tokens->rememberSlug($slug);
 
         return $slug;

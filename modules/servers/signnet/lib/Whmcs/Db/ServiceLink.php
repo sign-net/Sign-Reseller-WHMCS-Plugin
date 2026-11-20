@@ -33,9 +33,24 @@ final class ServiceLink
     public const PACKAGE_HELD = 'held';
     public const PACKAGE_FAILED = 'failed';
 
+    /** The order of a link whose service was already deleted when the plugin first recorded orders. */
+    public const ORDER_OF_DELETED_SERVICE = -1;
+
     /**
      * @param list<string>                $heldWarnings
      * @param array<string, mixed>|null   $domainSetup
+     * @param int|null                    $suspendedOutsideAt When the plugin learnt that the portal holds a
+     *     suspension WHMCS did not make; null while it holds none. WHMCS never lifts such a suspension
+     *     on its own.
+     * @param int|null                    $orderId The WHMCS order (tblhosting.orderid) of the service the
+     *     link was made for, 0 for a service made without an order. Recorded when the link is first
+     *     saved, or by the upgrade for a link saved before; null until then.
+     * @param int|null                    $suspendAttemptAt When the first of the service's suspend calls whose
+     *     answer never arrived was sent; null once Sign.net answers one. Such a call may have suspended
+     *     the portal, so a suspension that began since then can be WHMCS's own.
+     * @param int|null                    $whmcsSuspendedAt When the suspension WHMCS's own call made began, in
+     *     milliseconds as Sign.net gives it, while the portal holds it; null otherwise, and for a suspension
+     *     an earlier version of the plugin recorded.
      */
     public function __construct(
         public readonly int $serviceId,
@@ -54,12 +69,73 @@ final class ServiceLink
         public readonly ?string $lastError = null,
         public readonly int $createdAt = 0,
         public readonly int $updatedAt = 0,
+        public readonly ?int $suspendedOutsideAt = null,
+        public readonly ?int $orderId = null,
+        public readonly ?int $suspendAttemptAt = null,
+        public readonly ?int $whmcsSuspendedAt = null,
     ) {
     }
 
     public function isLinked(): bool
     {
         return $this->tenantId !== null;
+    }
+
+    /** The link manages a portal that WHMCS has not deleted. */
+    public function isLive(): bool
+    {
+        return $this->isLinked() && in_array($this->state, [self::STATE_ACTIVE, self::STATE_SUSPENDED], true);
+    }
+
+    /**
+     * Whether the link was made for the service that now has its service id, which WHMCS made with
+     * order $orderId (null when no service has the id). WHMCS can give a deleted service's id to a
+     * newer service, and a link the deleted service left is not the newer one's. A link whose order
+     * is not recorded yet is taken to be its service's until the upgrade records it.
+     */
+    public function isForOrder(?int $orderId): bool
+    {
+        return $orderId === null || $this->orderId === null || $this->orderId === $orderId;
+    }
+
+    /** The link once Sign.net reports its portal not suspended. */
+    public function withoutSuspension(): self
+    {
+        return $this->with(['state' => self::STATE_ACTIVE, 'suspendedOutsideAt' => null, 'whmcsSuspendedAt' => null]);
+    }
+
+    /**
+     * The link holding the suspension WHMCS's own call made, which began at $startedAt (milliseconds, as
+     * Sign.net gives it; null when it gave none).
+     */
+    public function withWhmcsSuspension(?int $startedAt): self
+    {
+        return $this->with([
+            'state' => self::STATE_SUSPENDED,
+            'suspendedOutsideAt' => null,
+            'whmcsSuspendedAt' => $startedAt,
+        ]);
+    }
+
+    /** The link holding a suspension WHMCS did not make, which WHMCS never lifts on its own. */
+    public function withOutsideSuspension(): self
+    {
+        return $this->with([
+            'state' => self::STATE_SUSPENDED,
+            'suspendedOutsideAt' => $this->suspendedOutsideAt ?? time(),
+            'whmcsSuspendedAt' => null,
+        ]);
+    }
+
+    /**
+     * Whether the link holds WHMCS's own suspension without knowing when it began, as a link an earlier
+     * version of the plugin suspended does.
+     */
+    public function holdsUnrecordedWhmcsSuspension(): bool
+    {
+        return $this->state === self::STATE_SUSPENDED
+            && $this->suspendedOutsideAt === null
+            && $this->whmcsSuspendedAt === null;
     }
 
     /** @param array<string, mixed> $changes property name => new value */
@@ -90,6 +166,10 @@ final class ServiceLink
             'last_error' => $this->lastError,
             'created_at' => $this->createdAt,
             'updated_at' => $this->updatedAt,
+            'suspended_outside_at' => $this->suspendedOutsideAt,
+            'order_id' => $this->orderId,
+            'suspend_attempt_at' => $this->suspendAttemptAt,
+            'whmcs_suspended_at' => $this->whmcsSuspendedAt,
         ];
     }
 
@@ -115,6 +195,11 @@ final class ServiceLink
             lastError: self::nullableString($row['last_error']),
             createdAt: (int) $row['created_at'],
             updatedAt: (int) $row['updated_at'],
+            // Columns added since 1.1 are missing until the plugin's tables are upgraded.
+            suspendedOutsideAt: self::nullableInt($row['suspended_outside_at'] ?? null),
+            orderId: self::nullableInt($row['order_id'] ?? null),
+            suspendAttemptAt: self::nullableInt($row['suspend_attempt_at'] ?? null),
+            whmcsSuspendedAt: self::nullableInt($row['whmcs_suspended_at'] ?? null),
         );
     }
 

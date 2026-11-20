@@ -78,6 +78,71 @@ final class AttentionListTest extends DatabaseTestCase
     }
 
     #[Test]
+    public function itListsLivePortalsWhoseServiceWhmcsHasEnded(): void
+    {
+        $this->service(112, 'Cancelled', self::live('t-112'));
+        $this->service(113, 'Terminated', self::live('t-113', ['state' => ServiceLink::STATE_SUSPENDED]));
+        $this->service(114, 'Fraud', self::live('t-114'));
+
+        $items = (new AttentionList())->build([
+            self::label('t-112', TenantStatus::ACTIVE),
+            self::label('t-113', TenantStatus::SUSPENDED),
+            self::label('t-114', TenantStatus::ACTIVE),
+        ], []);
+
+        self::assertSame([
+            '#112 Cancelled in WHMCS, live in Sign.net',
+            '#113 Terminated in WHMCS, live in Sign.net',
+            '#114 Fraud in WHMCS, live in Sign.net',
+        ], self::summaries($items));
+        self::assertSame(
+            ['The portal was not deleted, so you are still billed for its package, and its users can sign in unless '
+                . 'it is suspended. Run Terminate on the service to delete it.'],
+            $items[0]->details,
+        );
+        self::assertSame('clientsservices.php?userid=7&id=114', $items[2]->serviceUrl());
+    }
+
+    #[Test]
+    public function itListsSuspendedServicesWhosePortalWasSuspendedOutsideWhmcs(): void
+    {
+        $outside = ['state' => ServiceLink::STATE_SUSPENDED, 'suspendedOutsideAt' => 1_900_000_000];
+        $this->service(115, 'Suspended', self::live('t-115', $outside));
+        $this->service(116, 'Active', self::live('t-116', $outside));
+        $this->service(117, 'Suspended', self::live('t-117', ['state' => ServiceLink::STATE_SUSPENDED]));
+
+        $items = (new AttentionList())->build([
+            self::label('t-115', TenantStatus::SUSPENDED),
+            self::label('t-116', TenantStatus::SUSPENDED),
+            self::label('t-117', TenantStatus::SUSPENDED),
+        ], []);
+
+        self::assertSame([
+            '#115 Suspended outside WHMCS',
+            '#116 Suspended in Sign.net, Active in WHMCS',
+        ], self::summaries($items));
+        self::assertSame(
+            ['The portal holds a suspension made outside WHMCS, so WHMCS does not lift it when the client pays. If '
+                . 'you made it in the Sign.net console, lift it there, or unsuspend the service from its page in '
+                . 'WHMCS. If Sign.net made it, only Sign.net can lift it.'],
+            $items[0]->details,
+        );
+    }
+
+    #[Test]
+    public function itLeavesOutASuspensionMadeOutsideWhmcsOnceSignNetListsThePortalActive(): void
+    {
+        $outside = ['state' => ServiceLink::STATE_SUSPENDED, 'suspendedOutsideAt' => 1_900_000_000];
+        $this->service(120, 'Suspended', self::live('t-120', $outside));
+
+        $whileListed = (new AttentionList())->build([self::label('t-120', TenantStatus::ACTIVE)], []);
+        $unlisted = (new AttentionList())->build(null, []);
+
+        self::assertSame(['#120 Suspended in WHMCS, active in Sign.net'], self::summaries($whileListed));
+        self::assertSame(['#120 Suspended outside WHMCS'], self::summaries($unlisted), 'Without the list, it stays.');
+    }
+
+    #[Test]
     public function itListsLivePortalsWhoseServiceWasDeleted(): void
     {
         $this->service(108, null, self::live('t-108', ['lastError' => 'WHMCS service #108 was deleted, but ...']));
@@ -88,6 +153,26 @@ final class AttentionListTest extends DatabaseTestCase
         self::assertSame(['#108 WHMCS service deleted, portal still live'], self::summaries($items));
         self::assertSame(['WHMCS service #108 was deleted, but ...'], $items[0]->details);
         self::assertNull($items[0]->serviceUrl());
+    }
+
+    #[Test]
+    public function itListsTheLivePortalOfADeletedServiceWhoseIdWhmcsGaveToANewerOne(): void
+    {
+        $this->service(118, 'Active', self::live('t-118'));
+        $this->service(119, 'Active', ['tenantId' => 't-119', 'state' => ServiceLink::STATE_TERMINATED]);
+        Capsule::table('tblhosting')->whereIn('id', [118, 119])->update(['orderid' => 640]);
+
+        $items = (new AttentionList())->build([self::label('t-118', TenantStatus::ACTIVE)], []);
+
+        self::assertSame(['#118 WHMCS service deleted, portal still live'], self::summaries($items));
+        self::assertSame(
+            ['WHMCS has given the deleted service\'s id to a newer service, which leaves this portal alone. Note '
+                . 'its tenant id, t-118, before you click "Unlink (keeps the portal)" on service #118: after that, '
+                . 'WHMCS lists the portal nowhere. Then terminate the portal in Sign.net, or link it to another '
+                . 'service.'],
+            $items[0]->details,
+        );
+        self::assertSame('clientsservices.php?userid=7&id=118', $items[0]->serviceUrl());
     }
 
     #[Test]

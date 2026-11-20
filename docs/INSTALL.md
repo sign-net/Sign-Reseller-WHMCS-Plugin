@@ -92,13 +92,16 @@ Label*, and add two text custom fields: `Portal address` (required, shown on the
 ## 5. Sell add-ons (optional)
 
 Open **Addons → Sign.net Reseller → Add-ons**. Create one with **New add-on** (for example 5 extra
-seats). Then click **Configurable option** on its row, tick the products that offer it, and click
-**Create configurable option**. The customer chooses a quantity when ordering or upgrading, and the
-module attaches that many units to their portal.
+seats). Then click **Configurable option** on its row, set the most units one order can take (1 or
+more: WHMCS reads 0 as no limit), tick the products that offer it, and click **Create configurable
+option**. The customer chooses a quantity when ordering or upgrading, and the module attaches that
+many units to their portal. To stop selling an add-on, open its **Configurable option** again,
+untick every product, and click **Save**.
 
 The configurable option is named `addon_<CODE>|<Name>`. Keep the part before the `|`: it is how the
-module finds the add-on. Once an add-on has been attached to any portal, what it grants is fixed;
-its price can still change.
+module finds the add-on, which is also why only an add-on whose code is made of the letters A to Z,
+digits, hyphens and underscores can be sold this way. Once an add-on has been attached to any
+portal, what it grants is fixed; its price can still change.
 
 ## 6. The welcome email
 
@@ -123,7 +126,8 @@ On the service's Overview in the client area:
 
 - the portal's name, address and state: *Setting up*, *DNS pending*, *Active* or *Suspended*;
 - the DNS records to create with their DNS provider, each with a Copy button, and **Check again**
-  (at most once a minute);
+  (at most once a minute). A check that fails only tells the customer it could not be done; the
+  reason goes to the activity log;
 - their package and add-ons;
 - once the portal is live: **Open portal**, and a link to its Organisation page, where the owner
   changes colours, logos and people.
@@ -135,15 +139,18 @@ On the service's Overview in the client area:
 The **Sign.net** fields show what Sign.net reports about the portal: status, owner, package and
 add-ons, users, and the domain with any DNS records still missing. They also list anything that
 needs you, for example a held order, a failed call, or WHMCS saying *Active* while the portal is
-suspended. The fields refresh at most once a minute; **Refresh from Sign.net** reads them now.
+suspended. The fields refresh at most once a minute. While Sign.net is rate limiting, failing or out
+of reach, this page and the client area wait before asking again: a minute, or as long as Sign.net
+asks, up to an hour. For a portal deleted outside WHMCS they wait a day. **Refresh from Sign.net**
+reads them now.
 
 | Button | Use it when |
 |---|---|
 | **Apply plan** | The portal's package or add-ons don't match the service, for example after changing the product's package. |
-| **Approve over-allowance & retry** | An order is held over your allowance and you want it to go ahead. The approval covers one run. |
+| **Approve over-allowance & retry** | An order is held over your allowance and you want it to go ahead. The approval covers only the run it starts: if that run fails or is held again, approve again. |
 | **Retry domain attach** | The domain shows *Not attached*. |
 | **Resend owner invite** | The owner's set-password link expired. Sign.net sends at most one every five minutes. |
-| **Link existing portal** | The portal already exists in Sign.net, for example one you made in the reseller console. Put its tenant id in the service's *Username* field, or its address in *Domain*, save, then click. |
+| **Link existing portal** | The portal already exists in Sign.net, for example one you made in the reseller console. Put its tenant id in the service's *Username* field, or its address in *Domain*, save, then click. The activity log names the portal's owner, so you can check it is the client's: linking does not change the owner. |
 | **Unlink (keeps the portal)** | This service should stop managing its portal. The portal itself is left as it is. |
 
 ### Held orders
@@ -160,13 +167,46 @@ kept, so you are still billed for the portal; terminating is what ends that. WHM
 reason is passed to Sign.net, where you and Sign.net staff can see it; the portal's people never
 do. If Sign.net itself suspended a portal, Unsuspend explains that only Sign.net can lift it.
 
+WHMCS lifts on its own only the suspension it made. Before WHMCS's automatic unsuspension, for
+example once the client pays an overdue invoice, the plugin reads the portal from Sign.net, and it
+lifts the suspension only if it is the one WHMCS made. A portal that is no longer suspended at all
+is left as it is. A suspension made in your Sign.net console, whether before WHMCS suspended the
+service or since, in place of WHMCS's own, is left in place, and the unsuspension fails with a
+message saying so; so is one Sign.net made, with a message saying that only Sign.net can lift it.
+The dashboard lists a suspended service whose portal holds such a suspension as *Suspended outside
+WHMCS*. To lift one made in your console, lift it there, or click **Unsuspend** on the service page:
+an administrator's Unsuspend lifts it, and so does the unsuspension WHMCS runs after a payment you
+record yourself in the admin area. Only Sign.net can lift one it made.
+
 ### When something fails
 
 - **Module log**: with module debug logging on (**System Logs → Module Log**), every call to
   Sign.net is logged, with the key and tokens masked. A failure's message ends with “(request <id>)”,
   and the same id marks that call in the module log.
+- **Activity log**: when a customer's **Check again** fails, they read only “We could not check your
+  portal's address right now. Please try again later.” The reason is in the activity log, in an entry
+  that starts “Sign.net: "Check again" on service #<id> failed:”.
 - **Retrying Create is always safe.** If Sign.net's answer was lost, the next run looks for the
-  portal before trying again, so it never makes a second one.
+  portal before trying again, so it never makes a second one. It links a portal only if it fits the
+  lost call: on the address the call asked for, created since the call, and owned by the email
+  address the call gave (the client's at the time, even if it has changed since). A portal with no
+  owner yet fits only on a later run than the call's, because right after the call it may be another
+  order's, whose owner is still to come. No portal fits while another service of this WHMCS has a
+  call in doubt for the same address. Any other portal on that address is reported as already in
+  use; if it is yours, link it with **Link existing portal**. Leave the portal address as it is
+  until that run. A run on a changed address still looks at the old one first: it links the portal
+  the call made there rather than make a second, and it keeps the new address waiting while the call
+  may still be running (ten minutes after it was sent), or while a portal created on the old address
+  since the call might be the call's. The message then says how to go on.
+- **"…was made for a WHMCS service since deleted…"**: WHMCS gave this service the id of a deleted
+  service whose portal is still live. MySQL 5.7 and MariaDB before 10.2.4 can reuse the newest id
+  after a restart, and an import can too. The plugin knows each service by the WHMCS order it came
+  from, so it leaves that portal alone and refuses every action on the service until you click
+  **Unlink (keeps the portal)**; Create then gives the service a portal of its own. Unlinking leaves
+  the old portal live, but WHMCS then lists it nowhere, the dashboard included, so note its address
+  and tenant id first: the message and the dashboard give both, and so does the activity log entry
+  Unlink writes. Then delete the portal in the Sign.net console, or link it to the service it
+  belongs to with **Link existing portal**.
 - **"The API key lacks a scope"**: create a key with all three scopes and paste it into the server's
   Password field.
 - **Token minting is paused**: Sign.net allows five tokens per fifteen minutes per address, and the
@@ -177,7 +217,16 @@ do. If Sign.net itself suspended a portal, Unsuspend explains that only Sign.net
 ## Upgrading
 
 Copy the new release's module folders over the old ones. WHMCS runs the addon's upgrade when its
-version changes, which adds any new tables or columns and never removes any.
+version changes, which adds any new tables or columns and never removes any. It also records the
+WHMCS order each existing link's service came from, so that a newer service WHMCS gives a deleted
+service's id never takes over its portal, and encodes the names of add-on options that earlier
+versions stored plain, the way WHMCS stores text, so the order form shows them as typed.
+
+Earlier versions did not record when WHMCS's own suspension of a portal began, which is how the
+plugin now tells it from a suspension made outside WHMCS. So the first time the plugin reads such a
+portal from Sign.net, it takes the portal's suspension as WHMCS's only if it carries the reason
+WHMCS recorded for suspending the service; otherwise the suspension was made outside WHMCS, and
+WHMCS no longer lifts it on its own.
 
 ## WHMCS 8.13 and 9.0
 

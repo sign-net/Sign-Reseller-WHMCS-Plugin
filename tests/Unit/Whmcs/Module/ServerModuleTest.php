@@ -9,6 +9,8 @@ use SignNet\Tests\Support\ModuleTestCase;
 use SignNet\Tests\Support\SignNetResponses as R;
 use SignNet\Tests\Support\WhmcsFake;
 use SignNet\Tests\Unit\ResellerApi\ApiFixtures;
+use SignNet\Whmcs\Admin\Dashboard\AttentionItem;
+use SignNet\Whmcs\Admin\Dashboard\AttentionList;
 use SignNet\Whmcs\Db\Cache;
 use SignNet\Whmcs\Db\ServiceLink;
 use SignNet\Whmcs\Db\ServiceRepository;
@@ -141,8 +143,43 @@ final class ServerModuleTest extends ModuleTestCase
         $this->transport->queueData(R::provisioned(R::assigned()));
 
         self::assertSame('success', signnet_CreateAccount($this->params()));
-        self::assertSame(R::TENANT_ID, $this->links->find(self::SERVICE_ID)?->tenantId);
+        $link = $this->links->find(self::SERVICE_ID);
+        self::assertSame([R::TENANT_ID, self::ORDER_ID], [$link?->tenantId, $link?->orderId]);
         self::assertNoSecretsLogged();
+    }
+
+    #[Test]
+    public function aServiceMadeWithoutAnOrderStillManagesItsPortal(): void
+    {
+        $this->insertService(self::SERVICE_ID, 'Active', 0);
+        $this->linkPortal();
+        $this->queueToken();
+        $this->transport->queueData(R::label());
+
+        self::assertSame('success', signnet_refresh($this->params()));
+        self::assertSame(0, $this->links->find(self::SERVICE_ID)?->orderId);
+    }
+
+    #[Test]
+    public function createAccountKeepsATenantIdNotInSignNetsFormOffTheServiceAndMakesNoSecondPortal(): void
+    {
+        $this->insertService();
+        $this->queueToken();
+        $this->transport->queueData(R::quota());
+        $this->transport->queueData(R::package());
+        $this->transport->queueData(['tenantId' => strtoupper(R::TENANT_ID)] + R::provisioned(R::assigned()));
+        $refusal = 'Sign.net gave this portal a tenant id or address that is not valid, so the service\'s Username '
+            . 'and Domain were left as they were. Contact Sign.net.';
+
+        $first = signnet_CreateAccount($this->params());
+        $retried = signnet_CreateAccount($this->params());
+
+        self::assertSame([$refusal, $refusal], [$first, $retried]);
+        self::assertSame(1, count(array_keys($this->calls(), R::PROVISION_CALL, true)));
+        self::assertSame(['', ''], [
+            Capsule::table('tblhosting')->where('id', self::SERVICE_ID)->value('username'),
+            Capsule::table('tblhosting')->where('id', self::SERVICE_ID)->value('domain'),
+        ]);
     }
 
     #[Test]
@@ -185,6 +222,22 @@ final class ServerModuleTest extends ModuleTestCase
         self::assertStringContainsString('cname.vercel-dns.com', $fields['Domain']);
         self::assertStringContainsString(
             'WHMCS shows this service Active, but the portal is suspended.',
+            $fields['Needs attention'],
+        );
+    }
+
+    #[Test]
+    public function theAdminTabSaysWhenWhmcsHasEndedAServiceWhosePortalIsLive(): void
+    {
+        $this->insertService(self::SERVICE_ID, 'Fraud');
+        $this->linkPortal();
+        $this->queueToken();
+        $this->transport->queueData(R::label(self::ACTIVE));
+
+        $fields = signnet_AdminServicesTabFields($this->params());
+
+        self::assertStringContainsString(
+            'WHMCS shows this service Fraud, but the portal still exists.',
             $fields['Needs attention'],
         );
     }
@@ -258,6 +311,109 @@ final class ServerModuleTest extends ModuleTestCase
 
         self::assertSame('success', signnet_SuspendAccount($this->params()));
         self::assertNull(Cache::get('portal:' . R::TENANT_ID));
+    }
+
+    #[Test]
+    public function refreshRecordsASuspensionWhmcsDidNotMakeUntilItIsLifted(): void
+    {
+        $this->insertService(self::SERVICE_ID, 'Active');
+        $this->linkPortal();
+        $this->queueToken();
+        $this->transport->queueData(R::label());
+        $this->transport->queueData(R::label(self::ACTIVE));
+
+        $whileSuspended = signnet_refresh($this->params());
+        $suspended = $this->links->find(self::SERVICE_ID);
+        $onceLifted = signnet_refresh($this->params());
+        $lifted = $this->links->find(self::SERVICE_ID);
+
+        self::assertSame(['success', 'success'], [$whileSuspended, $onceLifted]);
+        self::assertSame(ServiceLink::STATE_SUSPENDED, $suspended?->state);
+        self::assertNotNull($suspended->suspendedOutsideAt);
+        self::assertSame(ServiceLink::STATE_ACTIVE, $lifted?->state);
+        self::assertNull($lifted->suspendedOutsideAt);
+    }
+
+    #[Test]
+    public function refreshKeepsTheSuspensionWhmcsMadeAsWhmcss(): void
+    {
+        $this->insertService(self::SERVICE_ID, 'Suspended');
+        $this->linkPortal(ServiceLink::STATE_SUSPENDED);
+        $this->holdWhmcsSuspensionSince(ApiFixtures::CREATED_AT + 1000);
+        $this->queueToken();
+        $this->transport->queueData(R::label());
+
+        self::assertSame('success', signnet_refresh($this->params()));
+        self::assertNull($this->links->find(self::SERVICE_ID)?->suspendedOutsideAt);
+    }
+
+    #[Test]
+    public function refreshRecordsASuspensionThatTookThePlaceOfWhmcssAsMadeOutsideWhmcs(): void
+    {
+        $this->insertService(self::SERVICE_ID, 'Suspended');
+        $this->linkPortal(ServiceLink::STATE_SUSPENDED);
+        $this->holdWhmcsSuspensionSince(ApiFixtures::CREATED_AT + 1000);
+        $this->queueToken();
+        $this->transport->queueData(R::label(['suspendedAt' => ApiFixtures::CREATED_AT + 9000]));
+
+        self::assertSame('success', signnet_refresh($this->params()));
+        $link = $this->links->find(self::SERVICE_ID);
+        self::assertNotNull($link?->suspendedOutsideAt, 'The console lifted WHMCS\'s and suspended again.');
+        $problems = array_map(
+            static fn (AttentionItem $item): string => $item->problem,
+            (new AttentionList())->build(null, []),
+        );
+        self::assertSame(['Suspended outside WHMCS'], $problems);
+    }
+
+    #[Test]
+    public function refreshTellsAnEarlierVersionsSuspensionByWhmcssReason(): void
+    {
+        $this->insertService(self::SERVICE_ID, 'Suspended');
+        $this->linkPortal(ServiceLink::STATE_SUSPENDED);
+        $this->queueToken();
+        $this->transport->queueData(R::label(['suspendReason' => 'Overdue on Payment']));
+        $this->transport->queueData(R::label(['suspendReason' => 'Abuse']));
+
+        Capsule::table('tblhosting')->where('id', self::SERVICE_ID)->update(['suspendreason' => 'Overdue on Payment']);
+        signnet_refresh($this->params());
+        $whmcss = $this->links->find(self::SERVICE_ID);
+        $this->linkPortal(ServiceLink::STATE_SUSPENDED);
+        signnet_refresh($this->params());
+
+        self::assertSame(
+            [null, ApiFixtures::CREATED_AT + 1000],
+            [$whmcss?->suspendedOutsideAt, $whmcss?->whmcsSuspendedAt],
+            'Its start is recorded once it is known to be WHMCS\'s.',
+        );
+        self::assertNotNull($this->links->find(self::SERVICE_ID)?->suspendedOutsideAt);
+    }
+
+    #[Test]
+    public function whmcssAutomaticUnsuspensionLeavesASuspensionMadeOutsideWhmcs(): void
+    {
+        $this->insertService(self::SERVICE_ID, 'Suspended');
+        $this->linkPortal(ServiceLink::STATE_SUSPENDED);
+        $link = $this->links->find(self::SERVICE_ID);
+        self::assertNotNull($link);
+        $this->links->save($link->with(['suspendedOutsideAt' => 1_900_000_000]));
+        $this->queueToken();
+        $this->transport->queueData(R::label());
+
+        $result = signnet_UnsuspendAccount($this->params());
+
+        self::assertStringStartsWith('Not unsuspended: the portal was suspended outside WHMCS', $result);
+        self::assertSame([...self::FIRST_CALLS, 'GET ' . R::LABEL], $this->calls(), 'It is read, never lifted.');
+    }
+
+    /**
+     * Records on service 101's link that WHMCS's own suspension began at $startedAt (milliseconds).
+     */
+    private function holdWhmcsSuspensionSince(int $startedAt): void
+    {
+        $link = $this->links->find(self::SERVICE_ID);
+        self::assertNotNull($link);
+        $this->links->save($link->withWhmcsSuspension($startedAt));
     }
 
     #[Test]
@@ -389,6 +545,7 @@ final class ServerModuleTest extends ModuleTestCase
         $this->insertService();
         $this->queueToken();
         $this->transport->queueData(R::labels([R::TENANT_ID => 'sign.acme.test']));
+        $this->transport->queueData(R::label());
 
         self::assertSame('success', signnet_linkPortal($this->params(['username' => R::TENANT_ID])));
 
@@ -396,6 +553,11 @@ final class ServerModuleTest extends ModuleTestCase
         self::assertNotNull($link);
         self::assertSame(R::TENANT_ID, $link->tenantId);
         self::assertSame('sign.acme.test', $link->hostname);
+        self::assertContains(
+            'Sign.net: service #101 linked to the existing portal sign.acme.test, owned by owner@acme.test.',
+            WhmcsFake::activityMessages(),
+            'A portal made elsewhere may belong to someone other than the client.',
+        );
     }
 
     #[Test]
@@ -404,9 +566,75 @@ final class ServerModuleTest extends ModuleTestCase
         $this->insertService();
         $this->queueToken();
         $this->transport->queueData(R::labels([R::TENANT_ID => 'sign.acme.test']));
+        $this->transport->queueData(R::label());
 
         self::assertSame('success', signnet_linkPortal($this->params(['domain' => 'Sign.Acme.test'])));
         self::assertSame(R::TENANT_ID, $this->links->find(self::SERVICE_ID)?->tenantId);
+    }
+
+    #[Test]
+    public function linkingASuspendedPortalRecordsASuspensionWhmcsDidNotMake(): void
+    {
+        $this->insertService();
+        $this->queueToken();
+        $this->transport->queueData(R::labels([R::TENANT_ID => 'sign.acme.test'], 'Suspended'));
+        $this->transport->queueData(R::label());
+
+        self::assertSame('success', signnet_linkPortal($this->params(['username' => R::TENANT_ID])));
+
+        $link = $this->links->find(self::SERVICE_ID);
+        self::assertSame(ServiceLink::STATE_SUSPENDED, $link?->state);
+        self::assertNotNull($link->suspendedOutsideAt);
+    }
+
+    #[Test]
+    public function linkExistingPortalSaysWhenThePortalHasNoOwner(): void
+    {
+        $this->insertService();
+        $this->queueToken();
+        $this->transport->queueData(R::labels([R::TENANT_ID => 'sign.acme.test']));
+        $this->transport->queueData(R::label(['owner' => null]));
+
+        self::assertSame('success', signnet_linkPortal($this->params(['username' => R::TENANT_ID])));
+        self::assertContains(
+            'Sign.net: service #101 linked to the existing portal sign.acme.test, which has no owner account.',
+            WhmcsFake::activityMessages(),
+        );
+    }
+
+    #[Test]
+    public function linkExistingPortalChangesNothingWhenThePortalCannotBeRead(): void
+    {
+        $this->insertService();
+        $this->queueToken();
+        $this->transport->queueData(R::labels([R::TENANT_ID => 'sign.acme.test']));
+        $this->transport->queueError(500, 'internal_server_error');
+
+        $result = signnet_linkPortal($this->params(['username' => R::TENANT_ID]));
+
+        self::assertStringStartsWith('Sign.net could not complete the request (HTTP 500).', $result);
+        self::assertNull($this->links->find(self::SERVICE_ID));
+    }
+
+    #[Test]
+    public function linkExistingPortalLeavesTheServiceAloneWhenSignNetGivesAnAddressThatIsNotValid(): void
+    {
+        $this->insertService();
+        $this->queueToken();
+        $this->transport->queueData(R::labels([R::TENANT_ID => '<b>sign.acme.test</b>']));
+        $this->transport->queueData(R::label());
+
+        self::assertSame(
+            'Sign.net gave this portal a tenant id or address that is not valid, so the service\'s Username and '
+            . 'Domain were left as they were. Contact Sign.net.',
+            signnet_linkPortal($this->params(['username' => R::TENANT_ID])),
+        );
+        self::assertNull($this->links->find(self::SERVICE_ID), 'The service manages no portal.');
+        self::assertSame(['', ''], [
+            Capsule::table('tblhosting')->where('id', self::SERVICE_ID)->value('username'),
+            Capsule::table('tblhosting')->where('id', self::SERVICE_ID)->value('domain'),
+        ]);
+        self::assertSame([], WhmcsFake::activityMessages());
     }
 
     #[Test]
@@ -486,19 +714,5 @@ final class ServerModuleTest extends ModuleTestCase
         $this->expectExceptionMessage('Packages page');
 
         signnet_PackageLoader($this->params());
-    }
-
-    private function linkPortal(string $state = ServiceLink::STATE_ACTIVE): void
-    {
-        $this->links->save(new ServiceLink(
-            self::SERVICE_ID,
-            $this->serverId,
-            R::TENANT_ID,
-            'sign.acme.test',
-            'Acme Sign',
-            state: $state,
-            packageState: ServiceLink::PACKAGE_ASSIGNED,
-        ));
-        Capsule::table('tblhosting')->where('id', self::SERVICE_ID)->update(['username' => R::TENANT_ID]);
     }
 }

@@ -4,12 +4,15 @@ declare(strict_types=1);
 
 namespace SignNet\Tests\Unit\Whmcs\Db;
 
-use Illuminate\Database\Schema\Blueprint;
 use PHPUnit\Framework\Attributes\Test;
 use SignNet\ResellerApi\Auth\AccessToken;
 use SignNet\Tests\Support\DatabaseTestCase;
+use SignNet\Tests\Support\VersionOneTables;
 use SignNet\Whmcs\Db\DbTokenStore;
+use SignNet\Whmcs\Db\OrphanedLinkException;
 use SignNet\Whmcs\Db\Schema;
+use SignNet\Whmcs\Db\ServiceLink;
+use SignNet\Whmcs\Db\ServiceRepository;
 use WHMCS\Database\Capsule;
 
 final class SchemaTest extends DatabaseTestCase
@@ -19,7 +22,7 @@ final class SchemaTest extends DatabaseTestCase
     #[Test]
     public function itAddsTheSlugToATokenTableFromVersionOneAndKeepsItsToken(): void
     {
-        self::createTokenTableOfVersionOne();
+        VersionOneTables::createTokenTable();
         Capsule::table(Schema::TOKENS)->insert([
             'fingerprint' => self::FINGERPRINT,
             'access_token' => encrypt('tok-secret'),
@@ -38,17 +41,59 @@ final class SchemaTest extends DatabaseTestCase
         self::assertSame('reseller.sign.test', (new DbTokenStore())->get(self::FINGERPRINT)?->slug);
     }
 
-    private static function createTokenTableOfVersionOne(): void
+    #[Test]
+    public function itRecordsWhichLinksOfAnEarlierVersionHoldASuspensionWhmcsDidNotMake(): void
     {
-        Capsule::schema()->drop(Schema::TOKENS);
-        Capsule::schema()->create(Schema::TOKENS, static function (Blueprint $table): void {
-            $table->string('fingerprint', 64)->primary();
-            $table->text('access_token')->nullable();
-            $table->text('scopes')->nullable();
-            $table->unsignedInteger('expires_at')->nullable();
-            $table->unsignedInteger('blocked_until')->nullable();
-            $table->string('block_reason', 255)->nullable();
-            $table->unsignedInteger('updated_at');
-        });
+        VersionOneTables::createServiceTable();
+        Capsule::table('tblhosting')->insert([
+            ['id' => 201, 'domainstatus' => 'Suspended'],
+            ['id' => 202, 'domainstatus' => 'Active'],
+            ['id' => 203, 'domainstatus' => 'Active'],
+        ]);
+        Capsule::table(Schema::SERVICES)->insert([
+            VersionOneTables::serviceRow(201, ServiceLink::STATE_SUSPENDED),
+            VersionOneTables::serviceRow(202, ServiceLink::STATE_SUSPENDED),
+            VersionOneTables::serviceRow(203, ServiceLink::STATE_ACTIVE),
+        ]);
+
+        Schema::install();
+        Schema::install();
+
+        self::assertTrue(Capsule::schema()->hasColumn(Schema::SERVICES, 'suspend_attempt_at'));
+        self::assertTrue(Capsule::schema()->hasColumn(Schema::SERVICES, 'whmcs_suspended_at'));
+        $links = new ServiceRepository();
+        self::assertNull($links->find(201)?->suspendedOutsideAt, 'WHMCS suspended the service too.');
+        self::assertNotNull($links->find(202)?->suspendedOutsideAt);
+        self::assertNull($links->find(203)?->suspendedOutsideAt);
+    }
+
+    #[Test]
+    public function itRecordsTheOrderOfEachEarlierLinksServiceAndNoneForADeletedService(): void
+    {
+        VersionOneTables::createServiceTable();
+        Capsule::table('tblhosting')->insert([
+            ['id' => 301, 'orderid' => 77, 'domainstatus' => 'Active'],
+            ['id' => 303, 'orderid' => 0, 'domainstatus' => 'Active'],
+            ['id' => 304, 'orderid' => null, 'domainstatus' => 'Active'],
+        ]);
+        Capsule::table(Schema::SERVICES)->insert([
+            VersionOneTables::serviceRow(301, ServiceLink::STATE_ACTIVE),
+            VersionOneTables::serviceRow(302, ServiceLink::STATE_ACTIVE),
+            VersionOneTables::serviceRow(303, ServiceLink::STATE_ACTIVE),
+            VersionOneTables::serviceRow(304, ServiceLink::STATE_ACTIVE),
+        ]);
+
+        Schema::install();
+        Capsule::table('tblhosting')->insert(['id' => 302, 'orderid' => 88, 'domainstatus' => 'Pending']);
+        Schema::install();
+
+        $links = new ServiceRepository();
+        self::assertSame(
+            [77, ServiceLink::ORDER_OF_DELETED_SERVICE, 0, 0],
+            array_map(static fn (int $id): ?int => $links->find($id)?->orderId, [301, 302, 303, 304]),
+        );
+        self::assertSame([77, 0], [$links->forService(301)?->orderId, $links->forService(304)?->orderId]);
+        $this->expectException(OrphanedLinkException::class);
+        $links->forService(302);
     }
 }

@@ -75,6 +75,22 @@ final class HooksFileTest extends DatabaseTestCase
     }
 
     #[Test]
+    public function theWelcomeEmailNeverNamesThePortalADeletedServiceLeft(): void
+    {
+        Capsule::table('tblhosting')->insert(['id' => 101, 'userid' => 7, 'orderid' => 500]);
+        $this->savePortal();
+        Capsule::table('tblhosting')->where('id', 101)->update(['userid' => 8, 'orderid' => 600]);
+
+        $fields = self::$hooks['EmailPreSend'](['messagename' => EmailTemplateInstaller::NAME, 'relid' => 101]);
+
+        self::assertSame([], $fields);
+        self::assertStringContainsString(
+            'was made for a WHMCS service since deleted',
+            WhmcsFake::activityMessages()[0],
+        );
+    }
+
+    #[Test]
     public function itFlagsAPortalWhoseServiceWasDeleted(): void
     {
         $this->savePortal();

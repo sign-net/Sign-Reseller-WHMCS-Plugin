@@ -9,6 +9,7 @@ use SignNet\ResellerApi\Model\DnsRecord;
 use SignNet\ResellerApi\Model\PrivateLabel;
 use SignNet\ResellerApi\Model\TenantStatus;
 use SignNet\Whmcs\Db\ServiceLink;
+use SignNet\Whmcs\Db\WhmcsServices;
 use SignNet\Whmcs\Support\Html;
 
 /**
@@ -189,7 +190,7 @@ final class AdminTab
                 . 'portal is suspended.',
             $whmcsStatus === 'Suspended' && !$label->isSuspended() => 'WHMCS shows this service Suspended, but the '
                 . 'portal is active.',
-            in_array($whmcsStatus, ['Terminated', 'Cancelled'], true) => sprintf(
+            in_array($whmcsStatus, WhmcsServices::ENDED_STATUSES, true) => sprintf(
                 'WHMCS shows this service %s, but the portal still exists.',
                 $whmcsStatus,
             ),

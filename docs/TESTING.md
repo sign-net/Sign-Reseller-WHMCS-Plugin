@@ -23,8 +23,9 @@ Run it on WHMCS 8.13 first. Then repeat the critical cases on WHMCS 9.0 ([J](#j-
   key and renews it about hourly, so A2 to A4, which try three keys, use three of the five. If a message says
   “Sign.net is rate limiting these requests; try again in <n> seconds.” or “Token minting for this Sign.net API
   key is paused until …” where the case does not expect it, wait that long. A3 expects the second.
-- **The service page's Sign.net fields can be up to a minute old.** After changing something outside WHMCS,
-  click “Refresh from Sign.net”.
+- **The service page's Sign.net fields can be up to a minute old.** While Sign.net is rate limiting, failing or
+  out of reach, they wait a minute before asking again, or longer when Sign.net asks, and for a portal deleted
+  outside WHMCS a day. After changing something outside WHMCS, click “Refresh from Sign.net”.
 - **Every case has an id and a priority:**
   - **critical** cases are the smoke test;
   - **high** cases cover the rest of the plugin's main job;
@@ -56,8 +57,8 @@ Use these values, so the messages you see match this guide.
 | What | Values |
 |---|---|
 | Your own packages | `QA1-START` “QA Starter”: Monthly, base price 19.00, Documents 100, Seats 5, Templates 3.<br>`QA1-PRO` “QA Pro”: Monthly, base price 49.00, Documents 500, Seats 20, Templates 10, Notarisations 20. |
-| Add-on | `QA1-SEATS` “5 extra seats”: Monthly, 5.00 per unit, grants Seats 5. |
-| Portal addresses | `p01.qa1-dns.example.com` for the first portal (C2). Then `p02.qa1.example.com` to `p09.qa1.example.com`, as each case says. Only p01 needs DNS. |
+| Add-ons | `QA1-SEATS` “5 extra seats”: Monthly, 5.00 per unit, grants Seats 5.<br>`QA1-TAGS`, named `<i>QA</i> & "tags" &amp;`: Monthly, 1.00 per unit, grants Seats 1 (B10).<br>`QA1.DOT` “QA dot”: Monthly, 1.00 per unit, grants Seats 1 (B11). |
+| Portal addresses | `p01.qa1-dns.example.com` for the first portal (C2). Then `p02.qa1.example.com` to `p12.qa1.example.com`, as each case says. Only p01 needs DNS. |
 
 ### On Sign.net staging
 
@@ -292,6 +293,9 @@ On QA1-PRO, click “Archive”, then “Activate”.
 3. Click “Open the option group”.
 4. Back on the addon, click “Configurable option” on QA1-SEATS again.
 
+- [ ] Under “Maximum quantity”, the form says “The most units one order can take: 1 or more, because WHMCS reads
+  a maximum of 0 as no limit. Customers can always choose 0. To stop selling the add-on, untick every product
+  under "Offer it on".”
 - [ ] Before you save, the page says “Creates the option group "Sign.net add-on: 5 extra seats" with a Quantity
   option named "addon_QA1-SEATS|5 extra seats", priced at 5.00 <currency> per unit, monthly, and the same per
   month on products billed on other cycles.”
@@ -305,6 +309,48 @@ On QA1-PRO, click “Archive”, then “Activate”.
     triennially, with no setup fees.
 - [ ] Opening the page again says “This add-on is sold through option group "Sign.net add-on: 5 extra seats".”,
   and its button reads “Save”.
+
+**B10 · high · An add-on's name shows as typed**
+
+1. Go to Add-ons → “New add-on”, and create `qa1-tags` with the values from [Test data](#test-data), typing
+   its name exactly as `<i>QA</i> & "tags" &amp;`. The `&amp;` at the end is typed literally, on purpose, as in
+   C2.
+2. Click “Configurable option” on QA1-TAGS. Set “Maximum quantity” to 5, tick QA Starter, and click “Create
+   configurable option”. Then click “Open the option group”.
+3. As the test client, open the store and add QA Starter with Portal address `p08.qa1.example.com` and the
+   QA1-TAGS option set to 1. Look at the option, the order summary beside it, and the cart. Then empty the
+   cart.
+4. Back on the addon, click “Configurable option” on QA1-TAGS, untick QA Starter, and click “Save”.
+5. As the test client, add QA Starter to the cart again, then empty the cart.
+
+- [ ] Step 2 says “The configurable option is saved in group "Sign.net add-on:
+  `<i>QA</i> & "tags" &amp;`" and offered on 1 product(s).”
+- [ ] The option group is named “Sign.net add-on: `<i>QA</i> & "tags" &amp;`”, and its option
+  `addon_QA1-TAGS|<i>QA</i> & "tags" &amp;`, both exactly as typed.
+- [ ] In step 3, the order form, its summary and the cart show the option as `<i>QA</i> & "tags" &amp;`
+  exactly: the tags as plain text, “QA” not in italics, and the typed `&amp;` still `&amp;`.
+- [ ] Step 4 says “The configurable option is saved in group "Sign.net add-on:
+  `<i>QA</i> & "tags" &amp;`" and offered on 0 product(s).”
+- [ ] In step 5, QA Starter no longer offers the option.
+
+**B11 · normal · An add-on code the module cannot read**
+
+1. Create the add-on `qa1.dot` with the values from [Test data](#test-data).
+2. Click “Configurable option” on QA1.DOT, tick QA Starter, and click “Create configurable option”.
+
+- [ ] Step 1 says “Add-on QA1.DOT was created in Sign.net.”
+- [ ] Step 2 is refused: “Add-on QA1.DOT cannot be sold as a configurable option: the module only reads codes
+  made of the letters A to Z, digits, hyphens and underscores. Create an add-on with such a code to sell it in
+  WHMCS.”
+- [ ] WHMCS has no option group named “Sign.net add-on: QA dot”.
+
+**B12 · normal · A maximum of 0 is refused**
+
+On QA1-SEATS, click “Configurable option”, set “Maximum quantity” to 0, and click “Save”.
+
+- [ ] The browser asks for a value of 1 or more, and nothing is saved. If your browser lets the form through, the
+  page says “Maximum quantity must be a whole number, 1 or more.”
+- [ ] In WHMCS, the option `addon_QA1-SEATS|5 extra seats` still has maximum 10.
 
 ### C. The first order
 
@@ -389,6 +435,8 @@ As the test client, open the service.
   (QA Starter gives none, so the portal notarises from your pool), and under “Add-ons:” shows “5 extra seats × 1”.
 - [ ] There is no “Open portal” button.
 - [ ] Clicking “Check again” twice within a minute gives “You can check again in a minute.” the second time.
+  A check that fails gives only “We could not check your portal's address right now. Please try again later.”,
+  which G4 shows.
 
 **C8 · critical · Going live**
 
@@ -461,10 +509,12 @@ D3 and D4 need Sign.net to act on staging while you test, so arrange a time with
     QA platform test”;
   - “Needs attention” says “WHMCS shows this service Active, but the portal is suspended.”;
   - the addon's Dashboard lists “Suspended in Sign.net, Active in WHMCS”.
-- [ ] In step 3, Suspend succeeds, and the console still says “Suspended by sign.net”: your suspension never
-  takes over Sign.net's.
+- [ ] In step 3, Suspend succeeds, the activity log says the portal “was already suspended outside WHMCS”, and the
+  console still says “Suspended by sign.net”: your suspension never takes over Sign.net's.
 - [ ] Unsuspend is refused: “Suspended by Sign.net: QA platform test. Only Sign.net can lift this suspension;
   contact Sign.net support.”
+- [ ] After step 3, the addon's Dashboard lists “Suspended outside WHMCS”, saying that only Sign.net can lift a
+  suspension Sign.net made.
 
 **D4 · high · Sign.net lifts it**
 
@@ -484,6 +534,93 @@ D3 and D4 need Sign.net to act on staging while you test, so arrange a time with
   - “Needs attention” says “WHMCS shows this service Suspended, but the portal is active.”;
   - the Dashboard lists “Suspended in WHMCS, active in Sign.net”, with “The portal still opens for its users.”
 - [ ] Step 4 succeeds.
+
+**D6 · high · A suspension made in the console stays until you lift it**
+
+WHMCS lifts on its own only the suspensions it made. This case lets WHMCS try to lift one made in the console,
+the way it does when a client pays an overdue invoice.
+
+1. In the console's Accounts list, open the p01 row, click “Suspend” in its Suspension box, give the reason
+   `QA console test`, and click “Suspend” in the dialog.
+2. In WHMCS, run Module Commands → “Suspend” with the reason `Overdue on Payment`.
+3. Open the addon's Dashboard.
+4. Make sure System Settings → Automation Settings has “Enable Unsuspension” ticked. On the p01 service, set Next
+   Due Date to today and save, then generate the client's due invoices from the client's summary page, so the
+   service has an unpaid invoice. Add credit of at least that invoice's total to the client, then sign in to the
+   client area as the client, open the invoice and apply the credit. Pay it as the client: a payment you add in
+   the admin area counts as your own action, and lifts the suspension.
+5. In the admin area, run Module Commands → “Unsuspend”.
+
+- [ ] Step 2 succeeds, and the activity log has “Sign.net: portal p01.qa1-dns.example.com was already suspended
+  outside WHMCS, and stays so for service #<id>. WHMCS does not lift that suspension on its own.”
+- [ ] In step 3, “Needs attention” lists “Suspended outside WHMCS”, with “The portal holds a suspension made outside
+  WHMCS, so WHMCS does not lift it when the client pays. If you made it in the Sign.net console, lift it there, or
+  unsuspend the service from its page in WHMCS. If Sign.net made it, only Sign.net can lift it.”
+- [ ] After step 4:
+  - the invoice is paid, but the service is still Suspended;
+  - WHMCS's module queue lists the failed Unsuspend, answered “Not unsuspended: the portal was suspended outside
+    WHMCS, so WHMCS does not lift that suspension on its own. Lift it in the Sign.net console, or unsuspend the
+    service from the WHMCS admin area.”;
+  - the console still shows p01 “Suspended by you”, with the reason QA console test.
+- [ ] Step 5 succeeds:
+  - “Portal status” reads “Active”, and the console no longer shows p01 suspended;
+  - the Dashboard no longer lists the service;
+  - the activity log has “Sign.net: portal p01.qa1-dns.example.com unsuspended for service #<id>, lifting a
+    suspension made outside WHMCS.”
+
+**D7 · normal · A suspension the console puts in place of WHMCS's**
+
+WHMCS lifts on its own only the suspension it made, so not one the console makes after lifting WHMCS's.
+
+1. In WHMCS, run Module Commands → “Suspend” with the reason `Overdue on Payment`.
+2. In the console's Accounts list, open the p01 row, click “Unsuspend” and confirm with “Unsuspend”. Then click
+   “Suspend” in its Suspension box, give the reason `QA console test`, and click “Suspend” in the dialog.
+3. Pay an overdue invoice as the client, as D6 step 4 does.
+4. Open the addon's Dashboard.
+5. In the admin area, run Module Commands → “Unsuspend”.
+
+- [ ] After step 3:
+  - the invoice is paid, but the service is still Suspended;
+  - WHMCS's module queue lists the failed Unsuspend, answered “Not unsuspended: the portal was suspended outside
+    WHMCS, so WHMCS does not lift that suspension on its own. Lift it in the Sign.net console, or unsuspend the
+    service from the WHMCS admin area.”;
+  - the console still shows p01 “Suspended by you”, with the reason QA console test.
+- [ ] In step 4, the Dashboard lists “Suspended outside WHMCS”.
+- [ ] Step 5 succeeds, and “Portal status” reads “Active”.
+
+**D8 · normal · A suspension the console lifted before the client pays**
+
+1. In the console, suspend p01 with the reason `QA console test`, as D6 step 1 does.
+2. In WHMCS, run Module Commands → “Suspend” with the reason `Overdue on Payment`.
+3. In the console's Accounts list, open the p01 row, click “Unsuspend” and confirm with “Unsuspend”.
+4. Pay an overdue invoice as the client, as D6 step 4 does.
+
+- [ ] After step 4:
+  - the invoice is paid, and the service is Active;
+  - the activity log has “Sign.net: portal p01.qa1-dns.example.com was no longer suspended, so nothing was lifted
+    for service #<id>.”
+
+**D9 · normal · A suspension an earlier version recorded**
+
+Earlier versions did not record when WHMCS's own suspension began, so the plugin tells such a suspension by
+WHMCS's suspension reason instead. This case clears that record, which looks the same to the plugin.
+
+1. Run Module Commands → “Suspend” with the reason `Overdue on Payment`.
+2. In WHMCS's database, run:
+
+   ```sql
+   UPDATE mod_signnet_services SET whmcs_suspended_at = NULL WHERE service_id = <id>;
+   ```
+
+3. Click “Refresh from Sign.net”, then open the addon's Dashboard.
+4. In the console's Accounts list, open the p01 row, click “Unsuspend” and confirm with “Unsuspend”. Then click
+   “Suspend” in its Suspension box, give the reason `QA console test`, and click “Suspend” in the dialog.
+5. Run the SQL of step 2 again, click “Refresh from Sign.net”, and open the Dashboard.
+6. Run Module Commands → “Unsuspend”.
+
+- [ ] In step 3, the Dashboard does not list the service: its portal's suspension has WHMCS's reason.
+- [ ] In step 5, the Dashboard lists “Suspended outside WHMCS”: the console's reason is not WHMCS's.
+- [ ] Step 6 succeeds, and “Portal status” reads “Active”.
 
 ### E. Plan changes
 
@@ -569,7 +706,8 @@ Click “Apply plan”.
 - [ ] Step 2 succeeds.
 - [ ] The Username becomes the console portal's tenant id.
 - [ ] The Sign.net fields show p02.
-- [ ] The activity log has “Sign.net: service #<id> linked to the existing portal p02.qa1.example.com.”
+- [ ] The activity log has “Sign.net: service #<id> linked to the existing portal p02.qa1.example.com, owned by
+  <owner>.”, where <owner> is the email address you gave the owner in F1.
 - [ ] Step 3 succeeds, and “Package” reads “QA Starter (QA1-START)”.
 
 **F3 · normal · When linking is refused**
@@ -593,8 +731,8 @@ Click “Apply plan”.
   - “Sign.net portal” reads “Unlinked: this service no longer manages a portal. Portal address:
     p02.qa1.example.com”;
   - the console still lists p02;
-  - the activity log has “Sign.net: service #<id> unlinked from the portal p02.qa1.example.com; the portal
-    itself was not changed.”
+  - the activity log has “Sign.net: service #<id> unlinked from the portal p02.qa1.example.com (tenant <id>); the
+    portal itself was not changed.”
 - [ ] Step 2 links it again.
 
 **F5 · normal · Retry domain attach**
@@ -636,15 +774,22 @@ Run “Terminate” on the same service again.
 
 **G4 · normal · A portal deleted outside WHMCS**
 
-1. On the console's Accounts list, click “Deprovision” on p02, which is linked to the F2 service, and confirm.
-2. In WHMCS, click “Refresh from Sign.net” on that service.
-3. Run “Terminate”.
+1. As the test client, open the F2 service, which lists p02's DNS record, and keep the page open.
+2. On the console's Accounts list, click “Deprovision” on p02, which is linked to the F2 service, and confirm.
+3. On the client's open page, click “Check again”.
+4. In WHMCS, click “Refresh from Sign.net” on that service.
+5. Run “Terminate”.
 
-- [ ] After step 2:
+- [ ] Step 3 gives only “We could not check your portal's address right now. Please try again later.” The
+  activity log has “Sign.net: "Check again" on service #<id> failed: The portal p02.qa1.example.com no longer
+  exists in Sign.net; it was deleted outside WHMCS. Unlink it, or terminate the service.”
+- [ ] After step 4:
   - “Portal status” reads “Unavailable”, with “The portal p02.qa1.example.com no longer exists in Sign.net; it was
     deleted outside WHMCS. Unlink it, or terminate the service.”;
-  - the Dashboard lists “Portal missing from Sign.net”.
-- [ ] After step 3, Terminate succeeds and “Portal status” reads “Deleted”.
+  - the Dashboard lists “Portal missing from Sign.net”;
+  - reloading the service page, or the client's page, adds no call to the module log: a portal deleted outside
+    WHMCS is looked for again only after a day, or on “Refresh from Sign.net”.
+- [ ] After step 5, Terminate succeeds and “Portal status” reads “Deleted”.
 
 **G5 · normal · Deleting a WHMCS service whose portal is live**
 
@@ -676,6 +821,59 @@ Run “Terminate” on the same service again.
   - the module's answer to the cron's Terminate, in WHMCS's module queue, is “Not deleted: this product never
     deletes a Sign.net portal automatically. An administrator can terminate it from the service page.”
 - [ ] Step 3 deletes it.
+
+**G8 · normal · A live portal whose WHMCS service has ended**
+
+1. Order and pay QA Starter on `p11.qa1.example.com`.
+2. On its service page, set Status to “Fraud” and save. Changing the status by hand runs no module command, so
+   the portal is left as it is.
+3. Open Addons → Sign.net Reseller → Dashboard.
+4. On the service, run Module Commands → “Terminate” and confirm.
+
+- [ ] After step 2, the service's “Needs attention” says “WHMCS shows this service Fraud, but the portal still
+  exists.”
+- [ ] After step 3, “Needs attention” lists “Fraud in WHMCS, live in Sign.net”, with “The portal was not deleted,
+  so you are still billed for its package, and its users can sign in unless it is suspended. Run Terminate on
+  the service to delete it.”
+- [ ] Step 4 deletes the portal, and the Dashboard no longer lists the service.
+
+**G9 · normal · A service with a deleted service's id**
+
+WHMCS can give a new service the id of a deleted one: MySQL 5.7 and MariaDB before 10.2.4 can after a restart,
+and an import can too. The plugin tells the two apart by the WHMCS order each service came from, so this case
+changes the order the plugin recorded for a service, which looks the same to it.
+
+1. Order and pay QA Starter on `p12.qa1.example.com`, and note the service's id.
+2. From the service's page, move the service to another client (create a second client first if you need one),
+   click “Refresh from Sign.net”, then move it back to the test client.
+3. In WHMCS's database, run:
+
+   ```sql
+   UPDATE mod_signnet_services SET order_id = order_id + 1000000 WHERE service_id = <id>;
+   ```
+
+4. On the service, run Module Commands → “Suspend”, then click “Refresh from Sign.net”.
+5. Look at the service's Sign.net fields and the addon's Dashboard, and, as the test client, at the service in
+   the client area.
+6. Click “Unlink (keeps the portal)”, then “Link existing portal”. The service's Username still holds p12's
+   tenant id.
+7. Terminate p12.
+
+- [ ] In step 2, “Refresh from Sign.net” succeeds: moving a service keeps the order it came from.
+- [ ] In step 4, both are refused with “The Sign.net portal p12.qa1.example.com (tenant <id>) was made for a WHMCS
+  service since deleted, and WHMCS has given that service's id, #<id>, to this newer service. Nothing was done to
+  the portal. To give this service a portal of its own, click "Unlink (keeps the portal)", then run Create. To
+  manage p12.qa1.example.com again, unlink it here, then use "Link existing portal" on the service it belongs
+  to.”, and the console still shows p12 active.
+- [ ] In step 5:
+  - “Sign.net portal” reads “Unavailable:”, then the same message;
+  - the Dashboard lists “WHMCS service deleted, portal still live” against “#<id>”, with “WHMCS has given the
+    deleted service's id to a newer service, which leaves this portal alone. Note its tenant id, <id>, before you
+    click "Unlink (keeps the portal)" on service #<id>: after that, WHMCS lists the portal nowhere. Then terminate
+    the portal in Sign.net, or link it to another service.”;
+  - the client area shows “Setting up”, and not p12's address.
+- [ ] In step 6, both succeed. The service's Sign.net fields show p12 again, and the Dashboard no longer lists it.
+- [ ] Step 7 deletes p12.
 
 ### H. The allowance
 
@@ -731,6 +929,22 @@ Run “Terminate” on the p06 service.
 - [ ] After step 3, “Package” still reads “QA Starter (QA1-START)”, with “Add-ons: QA1-SEATS × 1”.
 - [ ] After step 4, Documents' “Remaining” is R again.
 
+**H6 · high · An approval covers one run**
+
+1. As the test client, order QA Starter on `p10.qa1.example.com` and pay.
+2. On its service, change the product to QA Huge and save. Run “Change Package”.
+3. On the addon's Packages page, click “Archive” on QA1-HUGE.
+4. On the service, click “Approve over-allowance & retry”.
+5. Click “Activate” on QA1-HUGE. On the service, run “Change Package” again.
+6. Click “Refresh from Sign.net”.
+7. Terminate p10.
+
+- [ ] Step 2 is held, with the same message as H5's step 2.
+- [ ] Step 4 answers “The package QA1-HUGE is archived in Sign.net.”
+- [ ] Step 5 is held again, with the same message: the run in step 4 used the approval up, although it failed.
+- [ ] After step 6, “Package” still reads “QA Starter (QA1-START)”.
+- [ ] After step 7, Documents' “Remaining” is R again.
+
 ### I. Logs and safety
 
 **I1 · high · No secrets in the module log**
@@ -770,6 +984,7 @@ secret).
    `p01.qa2-dns.example.com` and `p06.qa2.example.com`. The same test reseller and full key can be used.
    - Add three cases the critical ones rely on: A5 step 2 (for C9's colour), B7 (for B9's second product) and
      E3 (for G1's figures).
+   - Run B10 too: it checks how WHMCS 9.0's order form shows an add-on's name.
    - C8 needs the DNS record for `p01.qa2-dns.example.com`.
 3. Finish with H3, so the reseller gets its allowance back.
 
@@ -783,10 +998,14 @@ fails, the assumption is probably what broke.
 | Running Create through `localAPI('ModuleCreate')` sends the welcome email | H2 |
 | `ClientAreaAllowedFunctions` takes the label => function form | C7 and C8: “Check again” runs |
 | Custom fields reach the module HTML-encoded, so it decodes them | C5 and C9: the typed `&amp;` survives. If WHMCS does not encode, it arrives as `&`. |
+| WHMCS keeps configurable option names HTML-encoded, and its order form and cart print them as stored | B10: the name shows exactly as typed. If WHMCS escaped what it prints, it would show `&lt;i&gt;` and `&amp;amp;`. |
 | Cart custom fields are keyed by field id | C1: the typed address is the one checked |
 | `check_token('WHMCS.admin.default')` refuses a stale token | I2 |
 | The columns of `tblcustomfields`, `tblemailtemplates`, `tblproductconfig*` and `tblpricing` | A1 (the template), B6 and B7 (fields and pricing), B9 (the option group) |
 | `-1.00` marks a billing cycle a product does not offer | B6: only Monthly is offered |
+| A module call is an administrator's when WHMCS defines `ADMINAREA` outside the command line, so the cron and a client's payment are not | G7 (the cron's Terminate is refused), D6 (the Unsuspend after the client's payment is refused, an administrator's is not) |
+| WHMCS keeps the reason it suspended a service for in `tblhosting.suspendreason`, as it passed it to the module | D9 step 3: the Dashboard does not list the service |
+| Moving a service to another client keeps its `tblhosting.orderid` | G9 step 2: the refresh succeeds |
 
 It also checks what the plugin assumes of Sign.net's reseller console, which it calls with the API key:
 

@@ -7,7 +7,6 @@ namespace SignNet\Tests\Unit\ResellerApi;
 use PHPUnit\Framework\Attributes\Test;
 use SignNet\ResellerApi\Auth\Scope;
 use SignNet\ResellerApi\Exception\ForbiddenException;
-use SignNet\ResellerApi\Exception\ServerException;
 use SignNet\ResellerApi\Exception\TransportException;
 use SignNet\ResellerApi\Model\ProvisionRequest;
 
@@ -140,9 +139,10 @@ final class ConsoleSlugTest extends ClientTestCase
         $this->storeUsableToken(slug: null);
         $this->queueDashboard('../admin');
 
-        $this->expectException(ServerException::class);
+        $failure = $this->unsentProvisioning();
 
-        $this->client->getQuota();
+        self::assertStringContainsString('"data.slug" must be the reseller\'s host', $failure->getMessage());
+        self::assertSame([self::DASHBOARD_URL], $this->urls());
     }
 
     #[Test]
@@ -152,16 +152,53 @@ final class ConsoleSlugTest extends ClientTestCase
         $lostAnswer = new TransportException('Connection reset by peer', true, 'request-1');
         $this->transport->queue($lostAnswer, $lostAnswer, $lostAnswer);
 
-        try {
-            $this->client->provisionPrivateLabel(
-                new ProvisionRequest('owner@acme.test', 'Ann', 'Lee', 'sign.acme.test', 'Acme'),
-            );
-            self::fail('Provisioning went ahead without the slug.');
-        } catch (TransportException $failure) {
-            self::assertFalse($failure->requestSent);
-            self::assertStringContainsString('Could not learn the reseller console address', $failure->getMessage());
-        }
+        $failure = $this->unsentProvisioning();
+
+        self::assertStringContainsString('Could not learn the reseller console address', $failure->getMessage());
         self::assertSame([self::DASHBOARD_URL, self::DASHBOARD_URL, self::DASHBOARD_URL], $this->urls());
+    }
+
+    #[Test]
+    public function aSlugTheConsoleFailsToGiveLeavesTheCallUnsent(): void
+    {
+        $this->storeUsableToken(slug: null);
+        $this->transport->queueError(500, 'internal_server_error');
+
+        $failure = $this->unsentProvisioning();
+
+        self::assertStringStartsWith('Could not learn the reseller console address: ', $failure->getMessage());
+        self::assertSame([self::DASHBOARD_URL], $this->urls());
+    }
+
+    #[Test]
+    public function aSlugTheKeyMayNotReadIsStillARefusal(): void
+    {
+        $this->storeUsableToken(slug: null);
+        $this->transport->queueError(403, 'insufficient_scope');
+
+        $refusal = $this->forbidden(fn () => $this->client->provisionPrivateLabel(self::provisionRequest()));
+
+        self::assertSame('insufficient_scope', $refusal->errorCode);
+    }
+
+    /**
+     * Provisions, expecting the call never to be sent.
+     */
+    private function unsentProvisioning(): TransportException
+    {
+        try {
+            $this->client->provisionPrivateLabel(self::provisionRequest());
+        } catch (TransportException $failure) {
+            self::assertFalse($failure->requestSent, 'The provisioning call never left.');
+
+            return $failure;
+        }
+        self::fail('Provisioning went ahead without the slug.');
+    }
+
+    private static function provisionRequest(): ProvisionRequest
+    {
+        return new ProvisionRequest('owner@acme.test', 'Ann', 'Lee', 'sign.acme.test', 'Acme');
     }
 
     /**

@@ -9,6 +9,7 @@ use SignNet\ResellerApi\Exception\ApiException;
 use SignNet\ResellerApi\Model\PrivateLabel;
 use SignNet\ResellerApi\ResellerClient;
 use SignNet\Whmcs\ClientFactory;
+use SignNet\Whmcs\Db\OrphanedLinkException;
 use SignNet\Whmcs\Db\Rows;
 use SignNet\Whmcs\Db\Schema;
 use SignNet\Whmcs\Db\ServiceLink;
@@ -22,6 +23,7 @@ use SignNet\Whmcs\Provisioning\ProvisionService;
 use SignNet\Whmcs\Provisioning\TerminationGuard;
 use SignNet\Whmcs\Support\ErrorText;
 use SignNet\Whmcs\Support\Html;
+use SignNet\Whmcs\Support\RequestOrigin;
 use SignNet\Whmcs\Support\Settings;
 use SignNet\Whmcs\Version;
 use WHMCS\Database\Capsule;
@@ -33,6 +35,7 @@ use WHMCS\Database\Capsule;
 final class ServerModule
 {
     private const REQUIRED_SCOPES = [Scope::READ, Scope::PROVISION, Scope::PACKAGES];
+    private const CHECK_FAILED = 'We could not check your portal\'s address right now. Please try again later.';
 
     /**
      * @return array<string, mixed>
@@ -184,7 +187,7 @@ final class ServerModule
         return self::run(
             $params,
             'UnsuspendAccount',
-            static fn (): string => self::lifecycle($params)->unsuspend($params),
+            static fn (): string => self::lifecycle($params)->unsuspend($params, RequestOrigin::isAdministrator()),
         );
     }
 
@@ -232,7 +235,6 @@ final class ServerModule
                 'resendOwnerInvite' => $actions->resendOwnerInvite($params),
                 'linkPortal' => $actions->linkPortal($params),
                 'unlinkPortal' => $actions->unlinkPortal($params),
-                'checkDomain' => $actions->checkDomain($params),
                 default => throw new \InvalidArgumentException('Unknown Sign.net action ' . $action . '.'),
             };
         });
@@ -248,7 +250,7 @@ final class ServerModule
         try {
             Schema::ensure();
             $serviceId = (int) $params['serviceid'];
-            $link = (new ServiceRepository())->find($serviceId);
+            $link = (new ServiceRepository())->forService($serviceId);
             [$label, $error] = self::portal($params, $link);
 
             return AdminTab::fields($link, $label, $error, WhmcsServices::status($serviceId));
@@ -267,7 +269,7 @@ final class ServerModule
         $serviceId = (int) $params['serviceid'];
         try {
             Schema::ensure();
-            $link = (new ServiceRepository())->find($serviceId);
+            $link = (new ServiceRepository())->forService($serviceId);
             [$label, $error] = self::portal($params, $link);
             $variables = ClientAreaView::variables(
                 $serviceId,
@@ -292,6 +294,30 @@ final class ServerModule
     public static function clientAreaAllowedFunctions(): array
     {
         return ['Check DNS again' => 'checkDomain'];
+    }
+
+    /**
+     * The client area's "Check again". WHMCS shows its answer to the customer, unescaped, so a
+     * failure is put in fixed words and the reason, written for administrators, goes to the
+     * activity log.
+     *
+     * @param array<string, mixed> $params
+     */
+    public static function checkDomain(array $params): string
+    {
+        $result = self::run($params, 'checkDomain', static fn (): string => (new CustomActions(
+            ClientFactory::fromParams($params),
+            new ServiceRepository(),
+        ))->checkDomain($params));
+        if (in_array($result, [ProvisionService::SUCCESS, CustomActions::CHECK_LATER], true)) {
+            return $result;
+        }
+        logActivity(
+            sprintf('Sign.net: "Check again" on service #%d failed: %s', (int) ($params['serviceid'] ?? 0), $result),
+            (int) ($params['userid'] ?? 0),
+        );
+
+        return self::CHECK_FAILED;
     }
 
     /**
@@ -325,7 +351,10 @@ final class ServerModule
         try {
             Schema::ensure();
             $result = $work();
-        } catch (PlanException | InvalidOrderException | PortalGoneException $exception) {
+        } catch (
+            PlanException | InvalidOrderException | PortalGoneException | PortalUnavailableException
+            | OrphanedLinkException $exception
+        ) {
             $result = $exception->getMessage();
         } catch (ApiException $exception) {
             // The transport already put the failed call in the module log.
@@ -361,7 +390,7 @@ final class ServerModule
         }
         try {
             return [PortalCache::get(ClientFactory::fromParams($params), $link), null];
-        } catch (PortalGoneException $exception) {
+        } catch (PortalGoneException | PortalUnavailableException $exception) {
             return [null, $exception->getMessage()];
         } catch (ApiException | \InvalidArgumentException $exception) {
             return [null, ErrorText::describe($exception)];

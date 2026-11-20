@@ -7,17 +7,25 @@ namespace SignNet\Whmcs\Catalogue;
 use SignNet\ResellerApi\Model\Addon;
 use SignNet\Whmcs\Db\Rows;
 use SignNet\Whmcs\Provisioning\OrderDetails;
+use SignNet\Whmcs\Support\Html;
 use WHMCS\Database\Capsule;
 
 /**
  * The configurable option through which WHMCS products sell a Sign.net add-on: a group of its own
  * holding one Quantity option named "addon_<CODE>|<Name>", from which the module reads how many
  * units a customer ordered.
+ *
+ * WHMCS keeps the text of configurable options HTML-encoded, and its order form prints it as stored,
+ * so the names and descriptions written here are encoded too. The "addon_<CODE>" part is how the
+ * module finds the add-on, so it stays as it is, and only codes it can carry unchanged are accepted.
  */
 final class ConfigOptionFactory
 {
     /** WHMCS's option type for a quantity the customer enters. */
     private const QUANTITY_TYPE = 4;
+
+    /** The add-on codes an option name carries unchanged, and the module reads back. */
+    private const CODE_PATTERN = '/^[A-Z0-9_-]+$/D';
 
     public function find(string $addonCode): ?AddonOption
     {
@@ -32,7 +40,7 @@ final class ConfigOptionFactory
                 return new AddonOption(
                     (int) $row['id'],
                     (int) $row['gid'],
-                    (string) $row['name'],
+                    htmlspecialchars_decode((string) $row['name'], ENT_QUOTES),
                     (int) $row['qtymaximum'],
                     self::linkedProductIds((int) $row['gid']),
                 );
@@ -51,7 +59,8 @@ final class ConfigOptionFactory
      *
      * @return AddonOption The option as it now stands.
      *
-     * @throws CatalogueException When WHMCS lacks the add-on's currency.
+     * @throws CatalogueException When WHMCS lacks the add-on's currency, or a new option could not
+     *     carry the add-on's code.
      */
     public function save(Addon $addon, int $maxQuantity, array $productIds): AddonOption
     {
@@ -76,14 +85,23 @@ final class ConfigOptionFactory
      */
     private static function create(Addon $addon, int $maxQuantity): int
     {
+        $code = strtoupper($addon->code);
+        if (preg_match(self::CODE_PATTERN, $code) !== 1) {
+            throw new CatalogueException(sprintf(
+                'Add-on %s cannot be sold as a configurable option: the module only reads codes made of the '
+                . 'letters A to Z, digits, hyphens and underscores. Create an add-on with such a code to sell it '
+                . 'in WHMCS.',
+                $code,
+            ));
+        }
         $currencyId = Currencies::idForCode($addon->currency);
         $groupId = Capsule::table('tblproductconfiggroups')->insertGetId([
-            'name' => 'Sign.net add-on: ' . $addon->name,
-            'description' => sprintf('Sells Sign.net add-on %s by the unit.', strtoupper($addon->code)),
+            'name' => Html::escape('Sign.net add-on: ' . $addon->name),
+            'description' => Html::escape(sprintf('Sells Sign.net add-on %s by the unit.', $code)),
         ]);
         $optionId = Capsule::table('tblproductconfigoptions')->insertGetId([
             'gid' => $groupId,
-            'optionname' => OrderDetails::ADDON_OPTION_PREFIX . strtoupper($addon->code) . '|' . $addon->name,
+            'optionname' => OrderDetails::ADDON_OPTION_PREFIX . $code . '|' . Html::escape($addon->name),
             'optiontype' => self::QUANTITY_TYPE,
             'qtyminimum' => 0,
             'qtymaximum' => $maxQuantity,
@@ -92,7 +110,7 @@ final class ConfigOptionFactory
         ]);
         $subOptionId = Capsule::table('tblproductconfigoptionssub')->insertGetId([
             'configid' => $optionId,
-            'optionname' => $addon->name,
+            'optionname' => Html::escape($addon->name),
             'sortorder' => 0,
             'hidden' => 0,
         ]);

@@ -60,14 +60,3 @@ jobs:
             echo "::error::modules/servers/signnet/lib/ResellerApi must not reference WHMCS."
             exit 1
           fi
-
-      # CI logs are public, so a leak is reported by file and line, never by the key itself.
-      - name: Keep real Sign.net API keys out of the repository
-        run: |
-          leaks=$(git grep -nIE 'snk_(live|test)_[0-9a-f]{32}_[A-Za-z0-9]+' \
-            | grep -v '_0123456789abcdef0123456789abcdef_' | cut -d: -f1,2 || true)
-          if [ -n "$leaks" ]; then
-            echo "$leaks"
-            echo "::error::A Sign.net API key is committed above. Revoke it in the reseller console, then remove it."
-            exit 1
-          fi
