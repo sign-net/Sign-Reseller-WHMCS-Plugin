@@ -12,7 +12,6 @@ use SignNet\Tests\Unit\ResellerApi\ApiFixtures;
 use SignNet\Whmcs\Db\Cache;
 use SignNet\Whmcs\Db\ServiceLink;
 use SignNet\Whmcs\Db\ServiceRepository;
-use WHMCS\Database\Capsule;
 
 /**
  * The module as WHMCS drives it: through its signnet_* functions.
@@ -614,19 +613,5 @@ final class ServerModuleTest extends ModuleTestCase
         $this->expectExceptionMessage('Packages page');
 
         signnet_PackageLoader($this->params());
-    }
-
-    private function linkPortal(string $state = ServiceLink::STATE_ACTIVE): void
-    {
-        $this->links->save(new ServiceLink(
-            self::SERVICE_ID,
-            $this->serverId,
-            R::TENANT_ID,
-            'sign.acme.test',
-            'Acme Sign',
-            state: $state,
-            packageState: ServiceLink::PACKAGE_ASSIGNED,
-        ));
-        Capsule::table('tblhosting')->where('id', self::SERVICE_ID)->update(['username' => R::TENANT_ID]);
     }
 }

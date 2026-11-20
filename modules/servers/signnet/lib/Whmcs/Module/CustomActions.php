@@ -22,6 +22,8 @@ use SignNet\Whmcs\Provisioning\ProvisionService;
  */
 final class CustomActions
 {
+    private const CHECK_LATER = 'You can check again in a minute.';
+
     private const TENANT_ID_PATTERN = '/^[0-9a-f]{32}$/D';
     private const DNS_CHECK_INTERVAL_SECONDS = 60;
 
@@ -191,11 +193,9 @@ final class CustomActions
     public function checkDomain(array $params): string
     {
         $link = $this->linked($params);
-        $throttle = 'dns-check:' . $link->serviceId;
-        if (Cache::get($throttle) !== null) {
-            return 'You can check again in a minute.';
+        if (!Cache::claim('dns-check:' . $link->serviceId, self::DNS_CHECK_INTERVAL_SECONDS)) {
+            return self::CHECK_LATER;
         }
-        Cache::put($throttle, ['checkedAt' => time()], self::DNS_CHECK_INTERVAL_SECONDS);
         $setup = PortalCache::get($this->client, $link, true)->domainSetup;
         if (!$setup->attached) {
             $setup = $this->client->attachDomain((string) $link->tenantId);

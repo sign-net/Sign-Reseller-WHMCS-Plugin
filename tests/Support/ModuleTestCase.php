@@ -8,6 +8,8 @@ use SignNet\ResellerApi\Http\Request;
 use SignNet\Tests\Unit\ResellerApi\Fake\FakeSleeper;
 use SignNet\Tests\Unit\ResellerApi\Fake\FakeTransport;
 use SignNet\Whmcs\ClientFactory;
+use SignNet\Whmcs\Db\ServiceLink;
+use SignNet\Whmcs\Db\ServiceRepository;
 use WHMCS\Database\Capsule;
 
 /**
@@ -117,6 +119,25 @@ abstract class ModuleTestCase extends DatabaseTestCase
             'server' => $this->serverId,
             'domainstatus' => $status,
         ]);
+    }
+
+    /**
+     * Links service 101 to the portal SignNetResponses::label() describes, as Create leaves it.
+     */
+    protected function linkPortal(string $state = ServiceLink::STATE_ACTIVE): void
+    {
+        (new ServiceRepository())->save(new ServiceLink(
+            self::SERVICE_ID,
+            $this->serverId,
+            SignNetResponses::TENANT_ID,
+            SignNetResponses::HOST,
+            'Acme Sign',
+            state: $state,
+            packageState: ServiceLink::PACKAGE_ASSIGNED,
+        ));
+        Capsule::table('tblhosting')
+            ->where('id', self::SERVICE_ID)
+            ->update(['username' => SignNetResponses::TENANT_ID]);
     }
 
     /**
