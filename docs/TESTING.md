@@ -389,6 +389,8 @@ As the test client, open the service.
   (QA Starter gives none, so the portal notarises from your pool), and under “Add-ons:” shows “5 extra seats × 1”.
 - [ ] There is no “Open portal” button.
 - [ ] Clicking “Check again” twice within a minute gives “You can check again in a minute.” the second time.
+  A check that fails gives only “We could not check your portal's address right now. Please try again later.”,
+  which G4 shows.
 
 **C8 · critical · Going live**
 
@@ -670,15 +672,20 @@ Run “Terminate” on the same service again.
 
 **G4 · normal · A portal deleted outside WHMCS**
 
-1. On the console's Accounts list, click “Deprovision” on p02, which is linked to the F2 service, and confirm.
-2. In WHMCS, click “Refresh from Sign.net” on that service.
-3. Run “Terminate”.
+1. As the test client, open the F2 service, which lists p02's DNS record, and keep the page open.
+2. On the console's Accounts list, click “Deprovision” on p02, which is linked to the F2 service, and confirm.
+3. On the client's open page, click “Check again”.
+4. In WHMCS, click “Refresh from Sign.net” on that service.
+5. Run “Terminate”.
 
-- [ ] After step 2:
+- [ ] Step 3 gives only “We could not check your portal's address right now. Please try again later.” The
+  activity log has “Sign.net: "Check again" on service #<id> failed: The portal p02.qa1.example.com no longer
+  exists in Sign.net; it was deleted outside WHMCS. Unlink it, or terminate the service.”
+- [ ] After step 4:
   - “Portal status” reads “Unavailable”, with “The portal p02.qa1.example.com no longer exists in Sign.net; it was
     deleted outside WHMCS. Unlink it, or terminate the service.”;
   - the Dashboard lists “Portal missing from Sign.net”.
-- [ ] After step 3, Terminate succeeds and “Portal status” reads “Deleted”.
+- [ ] After step 5, Terminate succeeds and “Portal status” reads “Deleted”.
 
 **G5 · normal · Deleting a WHMCS service whose portal is live**
 

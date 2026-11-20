@@ -35,6 +35,7 @@ use WHMCS\Database\Capsule;
 final class ServerModule
 {
     private const REQUIRED_SCOPES = [Scope::READ, Scope::PROVISION, Scope::PACKAGES];
+    private const CHECK_FAILED = 'We could not check your portal\'s address right now. Please try again later.';
 
     /**
      * @return array<string, mixed>
@@ -234,7 +235,6 @@ final class ServerModule
                 'resendOwnerInvite' => $actions->resendOwnerInvite($params),
                 'linkPortal' => $actions->linkPortal($params),
                 'unlinkPortal' => $actions->unlinkPortal($params),
-                'checkDomain' => $actions->checkDomain($params),
                 default => throw new \InvalidArgumentException('Unknown Sign.net action ' . $action . '.'),
             };
         });
@@ -294,6 +294,30 @@ final class ServerModule
     public static function clientAreaAllowedFunctions(): array
     {
         return ['Check DNS again' => 'checkDomain'];
+    }
+
+    /**
+     * The client area's "Check again". WHMCS shows its answer to the customer, unescaped, so a
+     * failure is put in fixed words and the reason, written for administrators, goes to the
+     * activity log.
+     *
+     * @param array<string, mixed> $params
+     */
+    public static function checkDomain(array $params): string
+    {
+        $result = self::run($params, 'checkDomain', static fn (): string => (new CustomActions(
+            ClientFactory::fromParams($params),
+            new ServiceRepository(),
+        ))->checkDomain($params));
+        if (in_array($result, [ProvisionService::SUCCESS, CustomActions::CHECK_LATER], true)) {
+            return $result;
+        }
+        logActivity(
+            sprintf('Sign.net: "Check again" on service #%d failed: %s', (int) ($params['serviceid'] ?? 0), $result),
+            (int) ($params['userid'] ?? 0),
+        );
+
+        return self::CHECK_FAILED;
     }
 
     /**

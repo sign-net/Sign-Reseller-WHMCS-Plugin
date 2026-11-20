@@ -187,5 +187,5 @@ function signnet_ClientAreaAllowedFunctions(): array
  */
 function signnet_checkDomain(array $params): string
 {
-    return \SignNet\Whmcs\Module\ServerModule::customAction($params, 'checkDomain');
+    return \SignNet\Whmcs\Module\ServerModule::checkDomain($params);
 }

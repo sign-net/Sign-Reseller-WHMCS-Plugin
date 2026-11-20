@@ -22,7 +22,8 @@ use SignNet\Whmcs\Provisioning\ProvisionService;
  */
 final class CustomActions
 {
-    private const CHECK_LATER = 'You can check again in a minute.';
+    /** What "Check again" answers within a minute of the last attempt. */
+    public const CHECK_LATER = 'You can check again in a minute.';
 
     private const TENANT_ID_PATTERN = '/^[0-9a-f]{32}$/D';
     private const DNS_CHECK_INTERVAL_SECONDS = 60;
@@ -182,7 +183,8 @@ final class CustomActions
 
     /**
      * The customer's "Check again": reads the portal's domain setup now, and asks for the hostname
-     * to be attached if it is not yet. Once a minute per service.
+     * to be attached if it is not yet. Once a minute per service, whatever the outcome, so a check
+     * that fails cannot be repeated any faster.
      *
      * @param array<string, mixed> $params
      *
@@ -192,10 +194,10 @@ final class CustomActions
      */
     public function checkDomain(array $params): string
     {
-        $link = $this->linked($params);
-        if (!Cache::claim('dns-check:' . $link->serviceId, self::DNS_CHECK_INTERVAL_SECONDS)) {
+        if (!Cache::claim('dns-check:' . (int) $params['serviceid'], self::DNS_CHECK_INTERVAL_SECONDS)) {
             return self::CHECK_LATER;
         }
+        $link = $this->linked($params);
         $setup = PortalCache::get($this->client, $link, true)->domainSetup;
         if (!$setup->attached) {
             $setup = $this->client->attachDomain((string) $link->tenantId);

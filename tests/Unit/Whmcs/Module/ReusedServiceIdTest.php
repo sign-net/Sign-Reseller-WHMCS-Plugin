@@ -30,6 +30,7 @@ final class ReusedServiceIdTest extends ModuleTestCase
         . 'service. Nothing was done to the portal. To give this service a portal of its own, click "Unlink (keeps '
         . 'the portal)", then run Create. To manage sign.first-client.test again, unlink it here, then use "Link '
         . 'existing portal" on the service it belongs to.';
+    private const CHECK_FAILED = 'We could not check your portal\'s address right now. Please try again later.';
 
     private ServiceRepository $links;
 
@@ -80,10 +81,15 @@ final class ReusedServiceIdTest extends ModuleTestCase
             'retryDomainAttach' => signnet_retryDomainAttach($params),
             'resendOwnerInvite' => signnet_resendOwnerInvite($params),
             'linkPortal' => signnet_linkPortal($params),
-            'checkDomain' => signnet_checkDomain($params),
         ];
+        $checkAgain = signnet_checkDomain($params);
 
         self::assertSame(array_fill_keys(array_keys($results), self::REFUSAL), $results);
+        self::assertSame(self::CHECK_FAILED, $checkAgain, 'The customer is not shown another client\'s portal.');
+        self::assertContains(
+            'Sign.net: "Check again" on service #101 failed: ' . self::REFUSAL,
+            WhmcsFake::activityMessages(),
+        );
         self::assertSame([], $this->calls(), 'Sign.net is never called.');
         self::assertSame([], WhmcsFake::$apiCalls);
         $service = Rows::first(Capsule::table('tblhosting')->where('id', self::SERVICE_ID));

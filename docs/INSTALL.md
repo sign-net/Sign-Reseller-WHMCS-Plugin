@@ -123,7 +123,8 @@ On the service's Overview in the client area:
 
 - the portal's name, address and state: *Setting up*, *DNS pending*, *Active* or *Suspended*;
 - the DNS records to create with their DNS provider, each with a Copy button, and **Check again**
-  (at most once a minute);
+  (at most once a minute). A check that fails only tells the customer it could not be done; the
+  reason goes to the activity log;
 - their package and add-ons;
 - once the portal is live: **Open portal**, and a link to its Organisation page, where the owner
   changes colours, logos and people.
@@ -173,6 +174,9 @@ as your action too, so the unsuspension WHMCS runs after it lifts the suspension
 - **Module log**: with module debug logging on (**System Logs → Module Log**), every call to
   Sign.net is logged, with the key and tokens masked. A failure's message ends with “(request <id>)”,
   and the same id marks that call in the module log.
+- **Activity log**: when a customer's **Check again** fails, they read only “We could not check your
+  portal's address right now. Please try again later.” The reason is in the activity log, in an entry
+  that starts “Sign.net: "Check again" on service #<id> failed:”.
 - **Retrying Create is always safe.** If Sign.net's answer was lost, the next run looks for the
   portal before trying again, so it never makes a second one. It links a portal only if it fits the
   lost call: on the address the call asked for, created since the call, and owned by the client or by
