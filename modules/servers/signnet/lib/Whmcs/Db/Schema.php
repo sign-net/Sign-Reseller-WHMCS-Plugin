@@ -127,7 +127,7 @@ final class Schema
             return;
         }
         $orderOfService = sprintf(
-            'COALESCE((SELECT tblhosting.orderid FROM tblhosting WHERE tblhosting.id = %s.service_id), %d)',
+            'COALESCE((SELECT COALESCE(orderid, 0) FROM tblhosting WHERE tblhosting.id = %s.service_id), %d)',
             self::SERVICES,
             ServiceLink::ORDER_OF_DELETED_SERVICE,
         );

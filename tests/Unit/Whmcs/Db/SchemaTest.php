@@ -72,11 +72,13 @@ final class SchemaTest extends DatabaseTestCase
         Capsule::table('tblhosting')->insert([
             ['id' => 301, 'orderid' => 77, 'domainstatus' => 'Active'],
             ['id' => 303, 'orderid' => 0, 'domainstatus' => 'Active'],
+            ['id' => 304, 'orderid' => null, 'domainstatus' => 'Active'],
         ]);
         Capsule::table(Schema::SERVICES)->insert([
             self::serviceRowOfVersionOne(301, ServiceLink::STATE_ACTIVE),
             self::serviceRowOfVersionOne(302, ServiceLink::STATE_ACTIVE),
             self::serviceRowOfVersionOne(303, ServiceLink::STATE_ACTIVE),
+            self::serviceRowOfVersionOne(304, ServiceLink::STATE_ACTIVE),
         ]);
 
         Schema::install();
@@ -85,10 +87,10 @@ final class SchemaTest extends DatabaseTestCase
 
         $links = new ServiceRepository();
         self::assertSame(
-            [77, ServiceLink::ORDER_OF_DELETED_SERVICE, 0],
-            [$links->find(301)?->orderId, $links->find(302)?->orderId, $links->find(303)?->orderId],
+            [77, ServiceLink::ORDER_OF_DELETED_SERVICE, 0, 0],
+            array_map(static fn (int $id): ?int => $links->find($id)?->orderId, [301, 302, 303, 304]),
         );
-        self::assertSame(77, $links->forService(301)?->orderId);
+        self::assertSame([77, 0], [$links->forService(301)?->orderId, $links->forService(304)?->orderId]);
         $this->expectException(OrphanedLinkException::class);
         $links->forService(302);
     }

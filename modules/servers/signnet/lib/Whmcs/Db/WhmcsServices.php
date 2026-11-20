@@ -32,9 +32,9 @@ final class WhmcsServices
      */
     public static function orderId(int $serviceId): ?int
     {
-        $orderId = Capsule::table('tblhosting')->where('id', $serviceId)->value('orderid');
+        $service = Rows::first(Capsule::table('tblhosting')->where('id', $serviceId)->select('orderid'));
 
-        return $orderId === null ? null : (int) $orderId;
+        return $service === null ? null : (int) ($service['orderid'] ?? 0);
     }
 
     /**
