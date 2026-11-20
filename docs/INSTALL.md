@@ -165,7 +165,8 @@ WHMCS, in your Sign.net console or by Sign.net, keeps that suspension when WHMCS
 service, and WHMCS's automatic unsuspension, for example once the client pays an overdue invoice,
 leaves it in place and fails with a message saying so. The dashboard lists such a service as
 *Suspended outside WHMCS*. Lift the suspension in the console, or click **Unsuspend** on the service
-page: an administrator's Unsuspend lifts it.
+page: an administrator's Unsuspend lifts it. A payment you record yourself in the admin area counts
+as your action too, so the unsuspension WHMCS runs after it lifts the suspension.
 
 ### When something fails
 

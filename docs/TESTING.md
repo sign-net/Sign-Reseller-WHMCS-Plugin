@@ -497,7 +497,8 @@ the way it does when a client pays an overdue invoice.
 4. Make sure System Settings → Automation Settings has “Enable Unsuspension” ticked. On the p01 service, set Next
    Due Date to today and save, then generate the client's due invoices from the client's summary page, so the
    service has an unpaid invoice. Add credit of at least that invoice's total to the client, then sign in to the
-   client area as the client, open the invoice and apply the credit.
+   client area as the client, open the invoice and apply the credit. Pay it as the client: a payment you add in
+   the admin area counts as your own action, and lifts the suspension.
 5. In the admin area, run Module Commands → “Unsuspend”.
 
 - [ ] Step 2 succeeds, and the activity log has “Sign.net: portal p01.qa1-dns.example.com was already suspended
