@@ -104,6 +104,31 @@ final class AttentionListTest extends DatabaseTestCase
     }
 
     #[Test]
+    public function itListsSuspendedServicesWhosePortalWasSuspendedOutsideWhmcs(): void
+    {
+        $outside = ['state' => ServiceLink::STATE_SUSPENDED, 'suspendedOutsideAt' => 1_900_000_000];
+        $this->service(115, 'Suspended', self::live('t-115', $outside));
+        $this->service(116, 'Active', self::live('t-116', $outside));
+        $this->service(117, 'Suspended', self::live('t-117', ['state' => ServiceLink::STATE_SUSPENDED]));
+
+        $items = (new AttentionList())->build([
+            self::label('t-115', TenantStatus::SUSPENDED),
+            self::label('t-116', TenantStatus::SUSPENDED),
+            self::label('t-117', TenantStatus::SUSPENDED),
+        ], []);
+
+        self::assertSame([
+            '#115 Suspended outside WHMCS',
+            '#116 Suspended in Sign.net, Active in WHMCS',
+        ], self::summaries($items));
+        self::assertSame(
+            ['The portal was suspended outside WHMCS, so WHMCS does not lift that suspension when the client pays. '
+                . 'Lift it in the Sign.net console, or unsuspend the service from its page in WHMCS.'],
+            $items[0]->details,
+        );
+    }
+
+    #[Test]
     public function itListsLivePortalsWhoseServiceWasDeleted(): void
     {
         $this->service(108, null, self::live('t-108', ['lastError' => 'WHMCS service #108 was deleted, but ...']));

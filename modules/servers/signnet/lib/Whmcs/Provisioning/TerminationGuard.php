@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace SignNet\Whmcs\Provisioning;
 
+use SignNet\Whmcs\Support\RequestOrigin;
 use WHMCS\Database\Capsule;
 
 /**
@@ -19,7 +20,7 @@ final class TerminationGuard
 
     public static function forThisRequest(): self
     {
-        return new self(defined('ADMINAREA') && PHP_SAPI !== 'cli');
+        return new self(RequestOrigin::isAdministrator());
     }
 
     /**

@@ -416,9 +416,8 @@ final class ProvisionService
      */
     private function adopt(ServiceLink $link, PrivateLabel $portal, array $params): ServiceLink
     {
-        $adopted = $this->links->save($link->with([
+        $adopted = $this->links->save($link->withPortalSuspension($portal->isSuspended())->with([
             'tenantId' => $portal->tenantId,
-            'state' => $portal->isSuspended() ? ServiceLink::STATE_SUSPENDED : ServiceLink::STATE_ACTIVE,
             'attemptState' => ServiceLink::ATTEMPT_NONE,
             'attemptAt' => null,
             'domainSetup' => DomainState::toArray($portal->domainSetup),
@@ -441,9 +440,8 @@ final class ProvisionService
      */
     private function linkTo(ServiceLink $link, string $tenantId, array $params, DomainSetup $domain): ServiceLink
     {
-        $link = $this->links->save($link->with([
+        $link = $this->links->save($link->withPortalSuspension(false)->with([
             'tenantId' => $tenantId,
-            'state' => ServiceLink::STATE_ACTIVE,
             'attemptState' => ServiceLink::ATTEMPT_NONE,
             'attemptAt' => null,
             'domainSetup' => DomainState::toArray($domain),

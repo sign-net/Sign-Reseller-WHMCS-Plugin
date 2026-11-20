@@ -36,6 +36,9 @@ final class ServiceLink
     /**
      * @param list<string>                $heldWarnings
      * @param array<string, mixed>|null   $domainSetup
+     * @param int|null                    $suspendedOutsideAt When the plugin learnt that the portal holds a
+     *     suspension WHMCS did not make; null while it holds none. WHMCS never lifts such a suspension
+     *     on its own.
      */
     public function __construct(
         public readonly int $serviceId,
@@ -54,12 +57,30 @@ final class ServiceLink
         public readonly ?string $lastError = null,
         public readonly int $createdAt = 0,
         public readonly int $updatedAt = 0,
+        public readonly ?int $suspendedOutsideAt = null,
     ) {
     }
 
     public function isLinked(): bool
     {
         return $this->tenantId !== null;
+    }
+
+    /**
+     * The link once Sign.net says whether its portal is suspended. A suspension the link does not
+     * already hold as WHMCS's own was made outside WHMCS.
+     */
+    public function withPortalSuspension(bool $isSuspended): self
+    {
+        if (!$isSuspended) {
+            return $this->with(['state' => self::STATE_ACTIVE, 'suspendedOutsideAt' => null]);
+        }
+        $isWhmcss = $this->state === self::STATE_SUSPENDED && $this->suspendedOutsideAt === null;
+
+        return $this->with([
+            'state' => self::STATE_SUSPENDED,
+            'suspendedOutsideAt' => $isWhmcss ? null : ($this->suspendedOutsideAt ?? time()),
+        ]);
     }
 
     /** @param array<string, mixed> $changes property name => new value */
@@ -90,6 +111,7 @@ final class ServiceLink
             'last_error' => $this->lastError,
             'created_at' => $this->createdAt,
             'updated_at' => $this->updatedAt,
+            'suspended_outside_at' => $this->suspendedOutsideAt,
         ];
     }
 
@@ -115,6 +137,7 @@ final class ServiceLink
             lastError: self::nullableString($row['last_error']),
             createdAt: (int) $row['created_at'],
             updatedAt: (int) $row['updated_at'],
+            suspendedOutsideAt: self::nullableInt($row['suspended_outside_at']),
         );
     }
 

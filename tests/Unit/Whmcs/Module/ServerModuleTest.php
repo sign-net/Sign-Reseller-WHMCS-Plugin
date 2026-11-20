@@ -277,6 +277,54 @@ final class ServerModuleTest extends ModuleTestCase
     }
 
     #[Test]
+    public function refreshRecordsASuspensionWhmcsDidNotMakeUntilItIsLifted(): void
+    {
+        $this->insertService(self::SERVICE_ID, 'Active');
+        $this->linkPortal();
+        $this->queueToken();
+        $this->transport->queueData(R::label());
+        $this->transport->queueData(R::label(self::ACTIVE));
+
+        $whileSuspended = signnet_refresh($this->params());
+        $suspended = $this->links->find(self::SERVICE_ID);
+        $onceLifted = signnet_refresh($this->params());
+        $lifted = $this->links->find(self::SERVICE_ID);
+
+        self::assertSame(['success', 'success'], [$whileSuspended, $onceLifted]);
+        self::assertSame(ServiceLink::STATE_SUSPENDED, $suspended?->state);
+        self::assertNotNull($suspended->suspendedOutsideAt);
+        self::assertSame(ServiceLink::STATE_ACTIVE, $lifted?->state);
+        self::assertNull($lifted->suspendedOutsideAt);
+    }
+
+    #[Test]
+    public function refreshKeepsTheSuspensionWhmcsMadeAsWhmcss(): void
+    {
+        $this->insertService(self::SERVICE_ID, 'Suspended');
+        $this->linkPortal(ServiceLink::STATE_SUSPENDED);
+        $this->queueToken();
+        $this->transport->queueData(R::label());
+
+        self::assertSame('success', signnet_refresh($this->params()));
+        self::assertNull($this->links->find(self::SERVICE_ID)?->suspendedOutsideAt);
+    }
+
+    #[Test]
+    public function whmcssAutomaticUnsuspensionLeavesASuspensionMadeOutsideWhmcs(): void
+    {
+        $this->insertService(self::SERVICE_ID, 'Suspended');
+        $this->linkPortal(ServiceLink::STATE_SUSPENDED);
+        $link = $this->links->find(self::SERVICE_ID);
+        self::assertNotNull($link);
+        $this->links->save($link->with(['suspendedOutsideAt' => 1_900_000_000]));
+
+        $result = signnet_UnsuspendAccount($this->params());
+
+        self::assertStringStartsWith('Not unsuspended: the portal was suspended outside WHMCS', $result);
+        self::assertSame([], $this->calls());
+    }
+
+    #[Test]
     public function theClientAreaShowsTheRecordsStillToCreate(): void
     {
         $this->insertService(self::SERVICE_ID, 'Active');
@@ -430,6 +478,21 @@ final class ServerModuleTest extends ModuleTestCase
 
         self::assertSame('success', signnet_linkPortal($this->params(['domain' => 'Sign.Acme.test'])));
         self::assertSame(R::TENANT_ID, $this->links->find(self::SERVICE_ID)?->tenantId);
+    }
+
+    #[Test]
+    public function linkingASuspendedPortalRecordsASuspensionWhmcsDidNotMake(): void
+    {
+        $this->insertService();
+        $this->queueToken();
+        $this->transport->queueData(R::labels([R::TENANT_ID => 'sign.acme.test'], 'Suspended'));
+        $this->transport->queueData(R::label());
+
+        self::assertSame('success', signnet_linkPortal($this->params(['username' => R::TENANT_ID])));
+
+        $link = $this->links->find(self::SERVICE_ID);
+        self::assertSame(ServiceLink::STATE_SUSPENDED, $link?->state);
+        self::assertNotNull($link->suspendedOutsideAt);
     }
 
     #[Test]

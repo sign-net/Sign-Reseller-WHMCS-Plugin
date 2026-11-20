@@ -22,6 +22,7 @@ use SignNet\Whmcs\Provisioning\ProvisionService;
 use SignNet\Whmcs\Provisioning\TerminationGuard;
 use SignNet\Whmcs\Support\ErrorText;
 use SignNet\Whmcs\Support\Html;
+use SignNet\Whmcs\Support\RequestOrigin;
 use SignNet\Whmcs\Support\Settings;
 use SignNet\Whmcs\Version;
 use WHMCS\Database\Capsule;
@@ -184,7 +185,7 @@ final class ServerModule
         return self::run(
             $params,
             'UnsuspendAccount',
-            static fn (): string => self::lifecycle($params)->unsuspend($params),
+            static fn (): string => self::lifecycle($params)->unsuspend($params, RequestOrigin::isAdministrator()),
         );
     }
 

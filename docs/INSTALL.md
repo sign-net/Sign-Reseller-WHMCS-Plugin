@@ -160,6 +160,13 @@ kept, so you are still billed for the portal; terminating is what ends that. WHM
 reason is passed to Sign.net, where you and Sign.net staff can see it; the portal's people never
 do. If Sign.net itself suspended a portal, Unsuspend explains that only Sign.net can lift it.
 
+WHMCS lifts on its own only the suspensions it made. A portal that was already suspended outside
+WHMCS, in your Sign.net console or by Sign.net, keeps that suspension when WHMCS suspends the
+service, and WHMCS's automatic unsuspension, for example once the client pays an overdue invoice,
+leaves it in place and fails with a message saying so. The dashboard lists such a service as
+*Suspended outside WHMCS*. Lift the suspension in the console, or click **Unsuspend** on the service
+page: an administrator's Unsuspend lifts it.
+
 ### When something fails
 
 - **Module log**: with module debug logging on (**System Logs → Module Log**), every call to

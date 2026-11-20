@@ -42,8 +42,7 @@ final class CustomActions
     {
         $link = $this->linked($params);
         $label = PortalCache::get($this->client, $link, true);
-        $this->links->save($link->with([
-            'state' => $label->isSuspended() ? ServiceLink::STATE_SUSPENDED : ServiceLink::STATE_ACTIVE,
+        $this->links->save($link->withPortalSuspension($label->isSuspended())->with([
             'domainSetup' => DomainState::toArray($label->domainSetup),
         ]));
 
@@ -124,10 +123,9 @@ final class CustomActions
             return sprintf('That portal is linked to service #%d.', $holder->serviceId);
         }
         $owner = $this->client->getPrivateLabel($label->tenantId)->owner;
-        $link = $this->links->save($link->with([
+        $link = $this->links->save($link->withPortalSuspension($label->isSuspended())->with([
             'tenantId' => $label->tenantId,
             'hostname' => $label->primaryHost,
-            'state' => $label->isSuspended() ? ServiceLink::STATE_SUSPENDED : ServiceLink::STATE_ACTIVE,
             'attemptState' => ServiceLink::ATTEMPT_NONE,
             'attemptAt' => null,
             'lastError' => null,

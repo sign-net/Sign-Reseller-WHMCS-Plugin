@@ -461,8 +461,8 @@ D3 and D4 need Sign.net to act on staging while you test, so arrange a time with
     QA platform test”;
   - “Needs attention” says “WHMCS shows this service Active, but the portal is suspended.”;
   - the addon's Dashboard lists “Suspended in Sign.net, Active in WHMCS”.
-- [ ] In step 3, Suspend succeeds, and the console still says “Suspended by sign.net”: your suspension never
-  takes over Sign.net's.
+- [ ] In step 3, Suspend succeeds, the activity log says the portal “was already suspended outside WHMCS”, and the
+  console still says “Suspended by sign.net”: your suspension never takes over Sign.net's.
 - [ ] Unsuspend is refused: “Suspended by Sign.net: QA platform test. Only Sign.net can lift this suspension;
   contact Sign.net support.”
 
@@ -484,6 +484,38 @@ D3 and D4 need Sign.net to act on staging while you test, so arrange a time with
   - “Needs attention” says “WHMCS shows this service Suspended, but the portal is active.”;
   - the Dashboard lists “Suspended in WHMCS, active in Sign.net”, with “The portal still opens for its users.”
 - [ ] Step 4 succeeds.
+
+**D6 · high · A suspension made in the console stays until you lift it**
+
+WHMCS lifts on its own only the suspensions it made. This case lets WHMCS try to lift one made in the console,
+the way it does when a client pays an overdue invoice.
+
+1. In the console's Accounts list, open the p01 row, click “Suspend” in its Suspension box, give the reason
+   `QA console test`, and click “Suspend” in the dialog.
+2. In WHMCS, run Module Commands → “Suspend” with the reason `Overdue on Payment`.
+3. Open the addon's Dashboard.
+4. Make sure System Settings → Automation Settings has “Enable Unsuspension” ticked. On the p01 service, set Next
+   Due Date to today and save, then generate the client's due invoices from the client's summary page, so the
+   service has an unpaid invoice. Add credit of at least that invoice's total to the client, then sign in to the
+   client area as the client, open the invoice and apply the credit.
+5. In the admin area, run Module Commands → “Unsuspend”.
+
+- [ ] Step 2 succeeds, and the activity log has “Sign.net: portal p01.qa1-dns.example.com was already suspended
+  outside WHMCS, and stays so for service #<id>. WHMCS does not lift that suspension on its own.”
+- [ ] In step 3, “Needs attention” lists “Suspended outside WHMCS”, with “The portal was suspended outside WHMCS,
+  so WHMCS does not lift that suspension when the client pays. Lift it in the Sign.net console, or unsuspend the
+  service from its page in WHMCS.”
+- [ ] After step 4:
+  - the invoice is paid, but the service is still Suspended;
+  - WHMCS's module queue lists the failed Unsuspend, answered “Not unsuspended: the portal was suspended outside
+    WHMCS, so WHMCS does not lift that suspension on its own. Lift it in the Sign.net console, or unsuspend the
+    service from the WHMCS admin area.”;
+  - the console still shows p01 “Suspended by you”, with the reason QA console test.
+- [ ] Step 5 succeeds:
+  - “Portal status” reads “Active”, and the console no longer shows p01 suspended;
+  - the Dashboard no longer lists the service;
+  - the activity log has “Sign.net: portal p01.qa1-dns.example.com unsuspended for service #<id>, lifting a
+    suspension made outside WHMCS.”
 
 ### E. Plan changes
 
@@ -819,6 +851,7 @@ fails, the assumption is probably what broke.
 | `check_token('WHMCS.admin.default')` refuses a stale token | I2 |
 | The columns of `tblcustomfields`, `tblemailtemplates`, `tblproductconfig*` and `tblpricing` | A1 (the template), B6 and B7 (fields and pricing), B9 (the option group) |
 | `-1.00` marks a billing cycle a product does not offer | B6: only Monthly is offered |
+| A module call is an administrator's when WHMCS defines `ADMINAREA` outside the command line, so the cron and a client's payment are not | G7 (the cron's Terminate is refused), D6 (the Unsuspend after the client's payment is refused, an administrator's is not) |
 
 It also checks what the plugin assumes of Sign.net's reseller console, which it calls with the API key:
 

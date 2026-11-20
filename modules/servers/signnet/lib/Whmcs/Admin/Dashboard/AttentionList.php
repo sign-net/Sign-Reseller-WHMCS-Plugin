@@ -17,8 +17,8 @@ use WHMCS\Database\Capsule;
 /**
  * What needs an administrator: orders held over the allowance, provisioning that failed or is in
  * doubt, portal addresses not attached, WHMCS and Sign.net disagreeing about a portal (a service
- * WHMCS has ended among them), live portals whose WHMCS service is gone, and addon settings new
- * portals ignore.
+ * WHMCS has ended among them), suspensions made outside WHMCS on services it has suspended, live
+ * portals whose WHMCS service is gone, and addon settings new portals ignore.
  *
  * @phpstan-type Service array{clientId: int, status: string}
  * @phpstan-type Statuses array<array-key, string>
@@ -71,7 +71,26 @@ final class AttentionList
             self::provisioning($link, $service),
             self::domainNotAttached($link, $service),
             self::statusMismatch($link, $service, $statuses),
+            self::suspendedOutside($link, $service),
         ]));
+    }
+
+    /**
+     * A suspended service whose portal holds a suspension WHMCS did not make, which WHMCS's automatic
+     * unsuspension therefore leaves in place.
+     *
+     * @param Service $service
+     */
+    private static function suspendedOutside(ServiceLink $link, array $service): ?AttentionItem
+    {
+        if ($link->suspendedOutsideAt === null || $service['status'] !== 'Suspended') {
+            return null;
+        }
+
+        return self::item($link, $service, 'Suspended outside WHMCS', [
+            'The portal was suspended outside WHMCS, so WHMCS does not lift that suspension when the client pays. '
+                . 'Lift it in the Sign.net console, or unsuspend the service from its page in WHMCS.',
+        ]);
     }
 
     /**
