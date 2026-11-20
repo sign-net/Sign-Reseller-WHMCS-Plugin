@@ -144,12 +144,20 @@ final class ProvisionService
         ProductSettings $product,
         array $params,
     ): string {
-        $isUnanswered = $link->attemptState === ServiceLink::ATTEMPT_UNKNOWN;
-        $settled = $isUnanswered ? $this->settleUnanswered($link, $order, $product, $params) : null;
+        $inDoubt = $link->attemptState === ServiceLink::ATTEMPT_UNKNOWN;
+        if ($inDoubt && $link->hostname !== $order->hostname) {
+            $settled = $this->settleBeforeNewAddress($link, $order, $params);
+            if ($settled !== null) {
+                return $settled;
+            }
+            // The earlier call made no portal at its own address, so nothing is in doubt any more.
+            $link = $link->with(['attemptState' => ServiceLink::ATTEMPT_NONE, 'attemptAt' => null]);
+            $inDoubt = false;
+        }
+        $settled = $inDoubt ? $this->settleUnanswered($link, $order, $product, $params) : null;
         if ($settled !== null) {
             return $settled;
         }
-        $inDoubt = $isUnanswered && $link->hostname === $order->hostname;
         $link = self::withOrder($link, $order);
 
         return $this->refusal($link, $order, $product, $params)
@@ -170,9 +178,6 @@ final class ProvisionService
         ProductSettings $product,
         array $params,
     ): ?string {
-        if ($link->hostname !== $order->hostname) {
-            return $this->settleBeforeNewAddress($link, $order, $params);
-        }
         try {
             [$taken, $made] = $this->unanswered->find($link, $order->hostname, $order->ownerEmail);
         } catch (ApiException $exception) {
@@ -190,6 +195,9 @@ final class ProvisionService
      * made is linked rather than left behind, and it keeps its address.
      *
      * @param array<string, mixed> $params
+     *
+     * @return string|null What the run answers; null when the call made no portal, so the new
+     *     address can be used.
      */
     private function settleBeforeNewAddress(ServiceLink $link, OrderDetails $order, array $params): ?string
     {

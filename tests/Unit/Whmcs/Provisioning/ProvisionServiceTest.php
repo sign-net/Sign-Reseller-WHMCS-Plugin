@@ -550,6 +550,23 @@ final class ProvisionServiceTest extends ModuleTestCase
     }
 
     #[Test]
+    public function aNewAddressAfterALostAnswerLeavesNothingInDoubtOnceTheOldOneIsClear(): void
+    {
+        $this->saveUnansweredAttempt(time() - 60, 'old.acme.test');
+        $this->queueToken();
+        $this->transport->queueData(R::labels());
+        $this->transport->queueData(R::quota(['seats' => 4]));
+        $this->transport->queueData(R::package('pkg-1', ['seats' => 10]));
+
+        $result = $this->service()->create($this->params());
+
+        self::assertStringStartsWith(ProvisionService::HELD_PREFIX, $result);
+        $link = $this->link();
+        self::assertSame('sign.acme.test', $link->hostname);
+        self::assertSame([ServiceLink::ATTEMPT_NONE, null], [$link->attemptState, $link->attemptAt]);
+    }
+
+    #[Test]
     public function aNewAddressAfterALostAnswerWaitsUntilTheOldOneCanBeLookedAt(): void
     {
         $this->saveUnansweredAttempt(time() - 60, 'old.acme.test');
