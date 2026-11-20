@@ -44,7 +44,7 @@ composer validate --strict
 ```
 
 CI also checks that the API client never references WHMCS, and that no real Sign.net API key is
-committed.
+committed, in the files or in any commit a change adds.
 
 ## Layout
 

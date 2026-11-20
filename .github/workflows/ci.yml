@@ -61,13 +61,77 @@ jobs:
             exit 1
           fi
 
-      # CI logs are public, so a leak is reported by file and line, never by the key itself.
-      - name: Keep real Sign.net API keys out of the repository
+  keys:
+    name: No Sign.net API keys
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the code and its history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # A key stays public once pushed, even after a later commit removes it, so the commits being added
+      # are scanned as well as the files. Each key found is its own record, so a test key cannot hide a
+      # real one on the same line. CI logs are public too: a key is reported by where it is, never shown.
+      - name: Keep real Sign.net API keys out of the files and the commits being added
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.event.after }}
         run: |
-          leaks=$(git grep -nIE 'snk_(live|test)_[0-9a-f]{32}_[A-Za-z0-9]+' \
-            | grep -v '_0123456789abcdef0123456789abcdef_' | cut -d: -f1,2 || true)
-          if [ -n "$leaks" ]; then
-            echo "$leaks"
-            echo "::error::A Sign.net API key is committed above. Revoke it in the reseller console, then remove it."
+          key='snk_(live|test)_[0-9a-f]{32}_[A-Za-z0-9]+'
+          test_key=':snk_(live|test)_0123456789abcdef0123456789abcdef_[A-Za-z0-9]+$'
+          none=0000000000000000000000000000000000000000
+
+          # Adds where each real key is, [<commit>:]<file>:<line>, to the file $1, scanning the
+          # revisions after it, or the checked-out files when none is given.
+          scan() {
+            out=$1
+            shift
+            status=0
+            git grep -noIE "$key" "$@" -- > "$RUNNER_TEMP/matches" || status=$?
+            if [ "$status" -gt 1 ]; then
+              echo "::error::git grep could not scan ${*:-the files}."
+              exit 1
+            fi
+            grep -vE "$test_key" "$RUNNER_TEMP/matches" | sed -E 's/:[^:]*$//' >> "$out" || true
+          }
+
+          : > "$RUNNER_TEMP/files"
+          : > "$RUNNER_TEMP/commits"
+          scan "$RUNNER_TEMP/files"
+
+          case "$EVENT" in
+            pull_request) base=$PR_BASE head=$PR_HEAD ;;
+            push) base=$PUSH_BEFORE head=$PUSH_AFTER ;;
+            *) base='' head='' ;;
+          esac
+          if [ -n "$head" ] && [ "$head" != "$none" ]; then
+            if [ -n "$base" ] && [ "$base" != "$none" ] && git cat-file -e "$base^{commit}" 2>/dev/null; then
+              commits=$(git rev-list "$base..$head")
+            else
+              # A new branch, or a base this checkout lacks: every commit the head holds.
+              commits=$(git rev-list "$head")
+            fi
+            for commit in $commits; do
+              scan "$RUNNER_TEMP/commits" "$commit"
+            done
+          fi
+
+          if [ -s "$RUNNER_TEMP/files" ] || [ -s "$RUNNER_TEMP/commits" ]; then
+            if [ -s "$RUNNER_TEMP/files" ]; then
+              echo "In the files, by file:line:"
+              cat "$RUNNER_TEMP/files"
+            fi
+            if [ -s "$RUNNER_TEMP/commits" ]; then
+              echo "In the commits being added, by commit:file:line:"
+              cat "$RUNNER_TEMP/commits"
+            fi
+            echo "::error::A Sign.net API key is committed where listed above. Revoke it in the reseller console:" \
+              "removing it does not take it out of the history."
             exit 1
           fi
