@@ -293,6 +293,9 @@ On QA1-PRO, click “Archive”, then “Activate”.
 3. Click “Open the option group”.
 4. Back on the addon, click “Configurable option” on QA1-SEATS again.
 
+- [ ] Under “Maximum quantity”, the form says “The most units one order can take: 1 or more, because WHMCS reads
+  a maximum of 0 as no limit. Customers can always choose 0. To stop selling the add-on, untick every product
+  under "Offer it on".”
 - [ ] Before you save, the page says “Creates the option group "Sign.net add-on: 5 extra seats" with a Quantity
   option named "addon_QA1-SEATS|5 extra seats", priced at 5.00 <currency> per unit, monthly, and the same per
   month on products billed on other cycles.”
@@ -340,6 +343,14 @@ On QA1-PRO, click “Archive”, then “Activate”.
   made of the letters A to Z, digits, hyphens and underscores. Create an add-on with such a code to sell it in
   WHMCS.”
 - [ ] WHMCS has no option group named “Sign.net add-on: QA dot”.
+
+**B12 · normal · A maximum of 0 is refused**
+
+On QA1-SEATS, click “Configurable option”, set “Maximum quantity” to 0, and click “Save”.
+
+- [ ] The browser asks for a value of 1 or more, and nothing is saved. If your browser lets the form through, the
+  page says “Maximum quantity must be a whole number, 1 or more.”
+- [ ] In WHMCS, the option `addon_QA1-SEATS|5 extra seats` still has maximum 10.
 
 ### C. The first order
 

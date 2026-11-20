@@ -92,9 +92,11 @@ Label*, and add two text custom fields: `Portal address` (required, shown on the
 ## 5. Sell add-ons (optional)
 
 Open **Addons → Sign.net Reseller → Add-ons**. Create one with **New add-on** (for example 5 extra
-seats). Then click **Configurable option** on its row, tick the products that offer it, and click
-**Create configurable option**. The customer chooses a quantity when ordering or upgrading, and the
-module attaches that many units to their portal.
+seats). Then click **Configurable option** on its row, set the most units one order can take (1 or
+more: WHMCS reads 0 as no limit), tick the products that offer it, and click **Create configurable
+option**. The customer chooses a quantity when ordering or upgrading, and the module attaches that
+many units to their portal. To stop selling an add-on, open its **Configurable option** again,
+untick every product, and click **Save**.
 
 The configurable option is named `addon_<CODE>|<Name>`. Keep the part before the `|`: it is how the
 module finds the add-on, which is also why only an add-on whose code is made of the letters A to Z,

@@ -7,18 +7,21 @@ namespace SignNet\Whmcs\Admin;
 use SignNet\Whmcs\Catalogue\PriceMapper;
 
 /**
- * Reads the numbers typed into the addon's forms. Only the shape is checked here; what the numbers
- * may be is Sign.net's to say.
+ * Reads the numbers typed into the addon's forms. Only their shape, and the least a field takes, are
+ * checked here; what Sign.net accepts beyond that is Sign.net's to say.
  */
 final class FormNumbers
 {
     /**
-     * @throws \InvalidArgumentException Naming the field, when the text is not a whole number.
+     * @throws \InvalidArgumentException Naming the field, when the text is not a whole number of at
+     *     least $minimum.
      */
-    public static function wholeNumber(string $label, string $text): int
+    public static function wholeNumber(string $label, string $text, int $minimum = 0): int
     {
-        if (preg_match('/^\d{1,9}$/D', $text) !== 1) {
-            throw new \InvalidArgumentException(sprintf('%s must be a whole number, 0 or more.', $label));
+        if (preg_match('/^\d{1,9}$/D', $text) !== 1 || (int) $text < $minimum) {
+            throw new \InvalidArgumentException(
+                sprintf('%s must be a whole number, %d or more.', $label, $minimum),
+            );
         }
 
         return (int) $text;
