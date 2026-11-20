@@ -55,6 +55,7 @@ final class Schema
                 $table->unsignedInteger('updated_at');
                 $table->unsignedInteger('suspended_outside_at')->nullable();
                 $table->integer('order_id')->nullable();
+                $table->unsignedInteger('suspend_attempt_at')->nullable();
                 $table->index(['server_id', 'hostname']);
             });
         }
@@ -65,6 +66,10 @@ final class Schema
             $table->integer('order_id')->nullable();
         });
         self::recordServiceOrders();
+        // When a suspend call whose answer never arrived was first sent.
+        self::addColumn(self::SERVICES, 'suspend_attempt_at', static function (Blueprint $table): void {
+            $table->unsignedInteger('suspend_attempt_at')->nullable();
+        });
 
         if (!$schema->hasTable(self::TOKENS)) {
             $schema->create(self::TOKENS, static function (Blueprint $table): void {

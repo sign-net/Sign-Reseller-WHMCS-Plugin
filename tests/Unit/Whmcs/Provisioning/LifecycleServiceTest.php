@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace SignNet\Tests\Unit\Whmcs\Provisioning;
 
 use PHPUnit\Framework\Attributes\Test;
+use SignNet\ResellerApi\Exception\TransportException;
 use SignNet\Tests\Support\ModuleTestCase;
 use SignNet\Tests\Support\SignNetResponses as R;
 use SignNet\Tests\Support\WhmcsFake;
@@ -154,6 +155,65 @@ final class LifecycleServiceTest extends ModuleTestCase
         $this->service()->suspend($this->params(['suspendreason' => 'Overdue on Payment']));
 
         self::assertNotNull($this->link()->suspendedOutsideAt);
+    }
+
+    #[Test]
+    public function aSuspendWhoseAnswerIsLostRemembersWhenItWasSent(): void
+    {
+        $this->queueToken();
+        $this->transport->queue(new TransportException('Operation timed out', true));
+
+        $result = $this->service()->suspend($this->params(['suspendreason' => 'Overdue on Payment']));
+
+        self::assertStringStartsWith('Could not reach Sign.net', $result);
+        self::assertSame(ServiceLink::STATE_ACTIVE, $this->link()->state);
+        self::assertGreaterThanOrEqual(time() - 5, (int) $this->link()->suspendAttemptAt);
+    }
+
+    #[Test]
+    public function anotherLostSuspendKeepsTheTimeOfTheFirst(): void
+    {
+        $firstSentAt = time() - 120;
+        $this->links->save($this->link()->with(['suspendAttemptAt' => $firstSentAt]));
+        $this->queueToken();
+        $this->transport->queueError(502, 'bad_gateway');
+
+        $this->service()->suspend($this->params(['suspendreason' => 'Overdue on Payment']));
+
+        self::assertSame($firstSentAt, $this->link()->suspendAttemptAt);
+    }
+
+    #[Test]
+    public function aSuspendSignNetRefusesLeavesNoCallToRemember(): void
+    {
+        $this->queueToken();
+        $this->transport->queueError(403, 'insufficient_scope');
+
+        $result = $this->service()->suspend($this->params(['suspendreason' => 'Overdue on Payment']));
+
+        self::assertStringContainsString('lacks a scope', $result);
+        self::assertNull($this->link()->suspendAttemptAt);
+    }
+
+    #[Test]
+    public function aSuspendRetriedADayAfterItsAnswerWasLostHoldsWhmcssSuspension(): void
+    {
+        $this->links->save($this->link()->with(['suspendAttemptAt' => time() - 86400]));
+        $this->queueToken();
+        $this->transport->queueData(self::suspendedSince(time() - 86390, 'Overdue on Payment'));
+        $this->transport->queueData(self::active());
+
+        $suspended = $this->service()->suspend($this->params(['suspendreason' => 'Overdue on Payment']));
+        $link = $this->link();
+        $unsuspended = $this->service()->unsuspend($this->params(), false);
+
+        self::assertSame(['success', 'success'], [$suspended, $unsuspended]);
+        self::assertSame([ServiceLink::STATE_SUSPENDED, null, null], [
+            $link->state,
+            $link->suspendedOutsideAt,
+            $link->suspendAttemptAt,
+        ]);
+        self::assertCount(1, $this->requestsTo('POST ' . R::LABEL . '/unsuspend'), 'WHMCS lifts its own suspension.');
     }
 
     #[Test]

@@ -45,6 +45,9 @@ final class ServiceLink
      * @param int|null                    $orderId The WHMCS order (tblhosting.orderid) of the service the
      *     link was made for, 0 for a service made without an order. Recorded when the link is first
      *     saved, or by the upgrade for a link saved before; null until then.
+     * @param int|null                    $suspendAttemptAt When the first of the service's suspend calls whose
+     *     answer never arrived was sent; null once Sign.net answers one. Such a call may have suspended
+     *     the portal, so a suspension that began since then can be WHMCS's own.
      */
     public function __construct(
         public readonly int $serviceId,
@@ -65,6 +68,7 @@ final class ServiceLink
         public readonly int $updatedAt = 0,
         public readonly ?int $suspendedOutsideAt = null,
         public readonly ?int $orderId = null,
+        public readonly ?int $suspendAttemptAt = null,
     ) {
     }
 
@@ -137,6 +141,7 @@ final class ServiceLink
             'updated_at' => $this->updatedAt,
             'suspended_outside_at' => $this->suspendedOutsideAt,
             'order_id' => $this->orderId,
+            'suspend_attempt_at' => $this->suspendAttemptAt,
         ];
     }
 
@@ -165,6 +170,7 @@ final class ServiceLink
             // Columns added since 1.1 are missing until the plugin's tables are upgraded.
             suspendedOutsideAt: self::nullableInt($row['suspended_outside_at'] ?? null),
             orderId: self::nullableInt($row['order_id'] ?? null),
+            suspendAttemptAt: self::nullableInt($row['suspend_attempt_at'] ?? null),
         );
     }
 

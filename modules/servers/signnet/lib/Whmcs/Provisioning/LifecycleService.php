@@ -8,6 +8,8 @@ use SignNet\ResellerApi\Exception\ApiException;
 use SignNet\ResellerApi\Exception\ConflictException;
 use SignNet\ResellerApi\Exception\ErrorCode;
 use SignNet\ResellerApi\Exception\ForbiddenException;
+use SignNet\ResellerApi\Exception\ServerException;
+use SignNet\ResellerApi\Exception\TransportException;
 use SignNet\ResellerApi\Exception\ValidationException;
 use SignNet\ResellerApi\Model\SuspensionState;
 use SignNet\ResellerApi\ResellerClient;
@@ -36,7 +38,8 @@ final class LifecycleService
 
     /**
      * Suspends the portal. A portal that is already suspended stays suspended as it was, and Sign.net
-     * answers with that suspension, so its answer shows whether this call made the suspension.
+     * answers with that suspension, so its answer shows whether a call of this service made it: this
+     * one, or an earlier one whose answer never arrived, which may have suspended the portal anyway.
      *
      * @param array<string, mixed> $params WHMCS module parameters; suspendreason is WHMCS's reason.
      *
@@ -50,16 +53,21 @@ final class LifecycleService
         }
         $clientId = (int) ($params['userid'] ?? 0);
         $reason = SuspensionReason::fromWhmcs((string) ($params['suspendreason'] ?? ''));
-        $calledAt = time();
+        $sentAt = $link->suspendAttemptAt ?? time();
+        $this->links->save($link->with(['suspendAttemptAt' => $sentAt]));
         try {
             [$suspension, $reasonGiven] = $this->suspendWithReason((string) $link->tenantId, $reason, $clientId);
         } catch (ApiException $exception) {
+            if (!self::mayHaveArrived($exception)) {
+                $this->links->save($link);
+            }
+
             return ErrorText::describe($exception);
         }
-        $suspended = self::isMadeByTheCall($suspension, $reasonGiven, $calledAt)
+        $suspended = self::isMadeByTheCall($suspension, $reasonGiven, $sentAt)
             ? $link->with(['state' => ServiceLink::STATE_SUSPENDED, 'suspendedOutsideAt' => null])
             : $link->withPortalSuspension(true);
-        $this->links->save($suspended->with(['lastError' => null]));
+        $this->links->save($suspended->with(['suspendAttemptAt' => null, 'lastError' => null]));
         logActivity(sprintf(
             $suspended->suspendedOutsideAt === null
                 ? 'Sign.net: portal %s suspended for service #%d.'
@@ -96,15 +104,26 @@ final class LifecycleService
     }
 
     /**
-     * Whether the suspension Sign.net answered with is the one the call made: it has the reason the
-     * call gave, and did not begin before the call.
+     * Whether a call that failed this way may still have reached Sign.net: its answer was lost, or was
+     * one this client could not read.
      */
-    private static function isMadeByTheCall(SuspensionState $suspension, string $reason, int $calledAt): bool
+    private static function mayHaveArrived(ApiException $exception): bool
     {
-        $beganAt = $suspension->suspendedAt === null ? $calledAt : intdiv($suspension->suspendedAt, 1000);
+        return $exception instanceof ServerException
+            || ($exception instanceof TransportException && $exception->requestSent !== false);
+    }
+
+    /**
+     * Whether the suspension Sign.net answered with is one a suspend call of this service made: it has
+     * the reason the call gave, and did not begin before $sentAt, when the first of the service's suspend
+     * calls still unanswered was sent.
+     */
+    private static function isMadeByTheCall(SuspensionState $suspension, string $reason, int $sentAt): bool
+    {
+        $beganAt = $suspension->suspendedAt === null ? $sentAt : intdiv($suspension->suspendedAt, 1000);
 
         return SuspensionReason::trimmed((string) $suspension->suspendReason) === $reason
-            && $beganAt >= $calledAt - self::CLOCK_SKEW_SECONDS;
+            && $beganAt >= $sentAt - self::CLOCK_SKEW_SECONDS;
     }
 
     /**
