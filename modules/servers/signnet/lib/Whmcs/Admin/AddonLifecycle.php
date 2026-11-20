@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace SignNet\Whmcs\Admin;
 
+use SignNet\Whmcs\Catalogue\AddonOptionNames;
 use SignNet\Whmcs\Db\Schema;
 use SignNet\Whmcs\Support\ErrorText;
 
@@ -61,11 +62,13 @@ final class AddonLifecycle
     }
 
     /**
-     * Creates what is missing of the plugin's tables and the welcome email template; idempotent.
+     * Creates what is missing of the plugin's tables and the welcome email template, and encodes the
+     * add-on option names earlier versions stored plain; idempotent.
      */
     private static function install(): void
     {
         Schema::install();
         EmailTemplateInstaller::install();
+        AddonOptionNames::encodeStored();
     }
 }

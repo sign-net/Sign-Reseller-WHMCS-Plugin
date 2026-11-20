@@ -120,6 +120,36 @@ final class AddonModuleTest extends DatabaseTestCase
     }
 
     #[Test]
+    public function itEncodesTheAddonOptionNamesAnEarlierVersionStoredWhenItUpgrades(): void
+    {
+        $groupId = Capsule::table('tblproductconfiggroups')->insertGetId([
+            'name' => 'Sign.net add-on: Docs & <b>seats</b>',
+            'description' => 'Sells Sign.net add-on DOCS by the unit.',
+        ]);
+        $optionId = Capsule::table('tblproductconfigoptions')->insertGetId([
+            'gid' => $groupId,
+            'optionname' => 'addon_DOCS|Docs & <b>seats</b>',
+            'optiontype' => '4',
+            'qtyminimum' => 0,
+            'qtymaximum' => 100,
+            'order' => 0,
+            'hidden' => 0,
+        ]);
+
+        signnet_reseller_upgrade();
+
+        self::assertSame(
+            'Sign.net add-on: Docs &amp; &lt;b&gt;seats&lt;/b&gt;',
+            Capsule::table('tblproductconfiggroups')->where('id', $groupId)->value('name'),
+        );
+        self::assertSame(
+            'addon_DOCS|Docs &amp; &lt;b&gt;seats&lt;/b&gt;',
+            Capsule::table('tblproductconfigoptions')->where('id', $optionId)->value('optionname'),
+        );
+        self::assertSame([], WhmcsFake::activityMessages());
+    }
+
+    #[Test]
     public function itReportsAnActivationItCouldNotComplete(): void
     {
         Capsule::schema()->drop('tblemailtemplates');

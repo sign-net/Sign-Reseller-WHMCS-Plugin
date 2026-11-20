@@ -207,7 +207,8 @@ as your action too, so the unsuspension WHMCS runs after it lifts the suspension
 Copy the new release's module folders over the old ones. WHMCS runs the addon's upgrade when its
 version changes, which adds any new tables or columns and never removes any. It also records the
 WHMCS order each existing link's service came from, so that a newer service WHMCS gives a deleted
-service's id never takes over its portal.
+service's id never takes over its portal, and encodes the names of add-on options that earlier
+versions stored plain, the way WHMCS stores text, so the order form shows them as typed.
 
 ## WHMCS 8.13 and 9.0
 
