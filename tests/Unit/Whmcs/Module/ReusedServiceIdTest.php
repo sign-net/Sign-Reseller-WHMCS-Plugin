@@ -132,8 +132,8 @@ final class ReusedServiceIdTest extends ModuleTestCase
             [$link?->tenantId, $link?->hostname, $link?->orderId],
         );
         self::assertContains(
-            'Sign.net: service #101 unlinked from the portal sign.first-client.test; the portal itself was not '
-                . 'changed.',
+            'Sign.net: service #101 unlinked from the portal sign.first-client.test (tenant ' . self::OLD_TENANT_ID
+                . '); the portal itself was not changed.',
             WhmcsFake::activityMessages(),
         );
     }

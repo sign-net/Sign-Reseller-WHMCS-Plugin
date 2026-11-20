@@ -675,8 +675,8 @@ Click “Apply plan”.
   - “Sign.net portal” reads “Unlinked: this service no longer manages a portal. Portal address:
     p02.qa1.example.com”;
   - the console still lists p02;
-  - the activity log has “Sign.net: service #<id> unlinked from the portal p02.qa1.example.com; the portal
-    itself was not changed.”
+  - the activity log has “Sign.net: service #<id> unlinked from the portal p02.qa1.example.com (tenant <id>); the
+    portal itself was not changed.”
 - [ ] Step 2 links it again.
 
 **F5 · normal · Retry domain attach**
@@ -812,8 +812,9 @@ changes the order the plugin recorded for a service, which looks the same to it.
 - [ ] In step 5:
   - “Sign.net portal” reads “Unavailable:”, then the same message;
   - the Dashboard lists “WHMCS service deleted, portal still live” against “#<id>”, with “WHMCS has given the
-    deleted service's id to a newer service, which leaves this portal alone. Click "Unlink (keeps the portal)" on
-    service #<id>, then terminate the portal (tenant <id>) in Sign.net, or link it to another service.”;
+    deleted service's id to a newer service, which leaves this portal alone. Note its tenant id, <id>, before you
+    click "Unlink (keeps the portal)" on service #<id>: after that, WHMCS lists the portal nowhere. Then terminate
+    the portal in Sign.net, or link it to another service.”;
   - the client area shows “Setting up”, and not p12's address.
 - [ ] In step 6, both succeed. The service's Sign.net fields show p12 again, and the Dashboard no longer lists it.
 - [ ] Step 7 deletes p12.

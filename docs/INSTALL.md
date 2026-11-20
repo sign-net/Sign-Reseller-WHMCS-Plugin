@@ -194,9 +194,11 @@ as your action too, so the unsuspension WHMCS runs after it lifts the suspension
   service whose portal is still live. MySQL 5.7 and MariaDB before 10.2.4 can reuse the newest id
   after a restart, and an import can too. The plugin knows each service by the WHMCS order it came
   from, so it leaves that portal alone and refuses every action on the service until you click
-  **Unlink (keeps the portal)**; Create then gives the service a portal of its own. The old portal
-  stays live and on the dashboard until you link it to the service it belongs to with **Link
-  existing portal**, or delete it in the Sign.net console.
+  **Unlink (keeps the portal)**; Create then gives the service a portal of its own. Unlinking leaves
+  the old portal live, but WHMCS then lists it nowhere, the dashboard included, so note its address
+  and tenant id first: the message and the dashboard give both, and so does the activity log entry
+  Unlink writes. Then delete the portal in the Sign.net console, or link it to the service it
+  belongs to with **Link existing portal**.
 - **"The API key lacks a scope"**: create a key with all three scopes and paste it into the server's
   Password field.
 - **Token minting is paused**: Sign.net allows five tokens per fifteen minutes per address, and the

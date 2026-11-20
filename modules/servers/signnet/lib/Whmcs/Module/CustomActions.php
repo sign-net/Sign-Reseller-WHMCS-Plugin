@@ -173,9 +173,10 @@ final class CustomActions
         ]));
         PortalCache::forget((string) $link->tenantId);
         logActivity(sprintf(
-            'Sign.net: service #%d unlinked from the portal %s; the portal itself was not changed.',
+            'Sign.net: service #%d unlinked from the portal %s (tenant %s); the portal itself was not changed.',
             $link->serviceId,
             $link->hostname,
+            (string) $link->tenantId,
         ), (int) ($params['userid'] ?? 0));
 
         return ProvisionService::SUCCESS;

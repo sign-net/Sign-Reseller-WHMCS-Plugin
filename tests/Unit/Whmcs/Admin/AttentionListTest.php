@@ -152,9 +152,10 @@ final class AttentionListTest extends DatabaseTestCase
 
         self::assertSame(['#118 WHMCS service deleted, portal still live'], self::summaries($items));
         self::assertSame(
-            ['WHMCS has given the deleted service\'s id to a newer service, which leaves this portal alone. Click '
-                . '"Unlink (keeps the portal)" on service #118, then terminate the portal (tenant t-118) in Sign.net, '
-                . 'or link it to another service.'],
+            ['WHMCS has given the deleted service\'s id to a newer service, which leaves this portal alone. Note '
+                . 'its tenant id, t-118, before you click "Unlink (keeps the portal)" on service #118: after that, '
+                . 'WHMCS lists the portal nowhere. Then terminate the portal in Sign.net, or link it to another '
+                . 'service.'],
             $items[0]->details,
         );
         self::assertSame('clientsservices.php?userid=7&id=118', $items[0]->serviceUrl());

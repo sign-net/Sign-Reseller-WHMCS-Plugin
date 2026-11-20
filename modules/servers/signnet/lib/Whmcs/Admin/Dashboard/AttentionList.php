@@ -199,8 +199,9 @@ final class AttentionList
         if ($service !== null) {
             return self::item($link, $service, 'WHMCS service deleted, portal still live', [sprintf(
                 'WHMCS has given the deleted service\'s id to a newer service, which leaves this portal alone. '
-                    . 'Click "Unlink (keeps the portal)" on service #%d, then terminate the portal (tenant %s) in '
-                    . 'Sign.net, or link it to another service.',
+                    . 'Note its tenant id, %2$s, before you click "Unlink (keeps the portal)" on service #%1$d: '
+                    . 'after that, WHMCS lists the portal nowhere. Then terminate the portal in Sign.net, or link '
+                    . 'it to another service.',
                 $link->serviceId,
                 (string) $link->tenantId,
             )]);
