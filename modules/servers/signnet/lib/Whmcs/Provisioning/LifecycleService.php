@@ -22,8 +22,9 @@ use SignNet\Whmcs\Support\ErrorText;
  * Suspends, unsuspends and deletes a service's portal.
  *
  * A suspension keeps the portal's people, documents and package, so the reseller is still billed
- * for it; deleting it is what ends that. On its own, WHMCS lifts only the suspensions it made: one
- * made in the Sign.net console, or by Sign.net, waits for an administrator.
+ * for it; deleting it is what ends that. On its own, WHMCS lifts only the suspension it made, which
+ * it checks with Sign.net first: one made in the Sign.net console waits for an administrator, and
+ * one made by Sign.net for Sign.net.
  */
 final class LifecycleService
 {
@@ -130,8 +131,9 @@ final class LifecycleService
 
     /**
      * @param array<string, mixed> $params WHMCS module parameters.
-     * @param bool $isAdministratorAction An administrator's Unsuspend also lifts a suspension made
-     *     outside WHMCS; WHMCS's automation, such as unsuspending once the client pays, does not.
+     * @param bool $isAdministratorAction An administrator's Unsuspend lifts any suspension the reseller
+     *     may lift. WHMCS's automation, such as unsuspending once the client pays, first reads the
+     *     portal, and lifts only the suspension WHMCS made.
      *
      * @throws OrphanedLinkException
      */
@@ -141,11 +143,36 @@ final class LifecycleService
         if ($link === null || !$link->isLinked()) {
             return self::withoutPortal($link);
         }
-        $isOutside = $link->suspendedOutsideAt !== null;
-        if ($isOutside && !$isAdministratorAction) {
-            return 'Not unsuspended: the portal was suspended outside WHMCS, so WHMCS does not lift that suspension '
-                . 'on its own. Lift it in the Sign.net console, or unsuspend the service from the WHMCS admin area.';
+        if ($isAdministratorAction) {
+            return $this->lift($link, $params);
         }
+        try {
+            $suspension = PortalSuspension::of($this->client->getPrivateLabel((string) $link->tenantId));
+        } catch (ApiException $exception) {
+            return ErrorText::describe($exception);
+        }
+        if ($suspension === null) {
+            return $this->findNothingToLift($link, $params);
+        }
+        $observed = WhmcsSuspension::observe($link, $suspension);
+        if ($observed->suspendedOutsideAt === null) {
+            return $this->lift($observed, $params);
+        }
+        $this->links->save($observed);
+
+        return $suspension->isSignNets
+            ? self::onlySignNetLifts($suspension->reason)
+            : 'Not unsuspended: the portal was suspended outside WHMCS, so WHMCS does not lift that suspension '
+                . 'on its own. Lift it in the Sign.net console, or unsuspend the service from the WHMCS admin area.';
+    }
+
+    /**
+     * Lifts the portal's suspension.
+     *
+     * @param array<string, mixed> $params WHMCS module parameters.
+     */
+    private function lift(ServiceLink $link, array $params): string
+    {
         try {
             $this->client->unsuspendPrivateLabel((string) $link->tenantId);
         } catch (ConflictException $exception) {
@@ -160,7 +187,25 @@ final class LifecycleService
             'Sign.net: portal %s unsuspended for service #%d%s.',
             $link->hostname,
             $link->serviceId,
-            $isOutside ? ', lifting a suspension made outside WHMCS' : '',
+            $link->suspendedOutsideAt !== null ? ', lifting a suspension made outside WHMCS' : '',
+        ), (int) ($params['userid'] ?? 0));
+
+        return ProvisionService::SUCCESS;
+    }
+
+    /**
+     * The portal holds no suspension any more, so there is nothing to lift. Sign.net is not asked to
+     * lift one anyway, which would lift a suspension made since the portal was read.
+     *
+     * @param array<string, mixed> $params WHMCS module parameters.
+     */
+    private function findNothingToLift(ServiceLink $link, array $params): string
+    {
+        $this->links->save($link->withoutSuspension()->with(['lastError' => null]));
+        logActivity(sprintf(
+            'Sign.net: portal %s was no longer suspended, so nothing was lifted for service #%d.',
+            $link->hostname,
+            $link->serviceId,
         ), (int) ($params['userid'] ?? 0));
 
         return ProvisionService::SUCCESS;
@@ -227,9 +272,14 @@ final class LifecycleService
             $reason = null;
         }
 
+        return self::onlySignNetLifts((string) $reason);
+    }
+
+    private static function onlySignNetLifts(string $reason): string
+    {
         return sprintf(
             'Suspended by Sign.net%s. Only Sign.net can lift this suspension; contact Sign.net support.',
-            $reason === null || $reason === '' ? '' : ': ' . $reason,
+            $reason === '' ? '' : ': ' . $reason,
         );
     }
 

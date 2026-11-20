@@ -566,6 +566,60 @@ the way it does when a client pays an overdue invoice.
   - the activity log has “Sign.net: portal p01.qa1-dns.example.com unsuspended for service #<id>, lifting a
     suspension made outside WHMCS.”
 
+**D7 · normal · A suspension the console puts in place of WHMCS's**
+
+WHMCS lifts on its own only the suspension it made, so not one the console makes after lifting WHMCS's.
+
+1. In WHMCS, run Module Commands → “Suspend” with the reason `Overdue on Payment`.
+2. In the console's Accounts list, open the p01 row, click “Unsuspend” and confirm with “Unsuspend”. Then click
+   “Suspend” in its Suspension box, give the reason `QA console test`, and click “Suspend” in the dialog.
+3. Pay an overdue invoice as the client, as D6 step 4 does.
+4. Open the addon's Dashboard.
+5. In the admin area, run Module Commands → “Unsuspend”.
+
+- [ ] After step 3:
+  - the invoice is paid, but the service is still Suspended;
+  - WHMCS's module queue lists the failed Unsuspend, answered “Not unsuspended: the portal was suspended outside
+    WHMCS, so WHMCS does not lift that suspension on its own. Lift it in the Sign.net console, or unsuspend the
+    service from the WHMCS admin area.”;
+  - the console still shows p01 “Suspended by you”, with the reason QA console test.
+- [ ] In step 4, the Dashboard lists “Suspended outside WHMCS”.
+- [ ] Step 5 succeeds, and “Portal status” reads “Active”.
+
+**D8 · normal · A suspension the console lifted before the client pays**
+
+1. In the console, suspend p01 with the reason `QA console test`, as D6 step 1 does.
+2. In WHMCS, run Module Commands → “Suspend” with the reason `Overdue on Payment`.
+3. In the console's Accounts list, open the p01 row, click “Unsuspend” and confirm with “Unsuspend”.
+4. Pay an overdue invoice as the client, as D6 step 4 does.
+
+- [ ] After step 4:
+  - the invoice is paid, and the service is Active;
+  - the activity log has “Sign.net: portal p01.qa1-dns.example.com was no longer suspended, so nothing was lifted
+    for service #<id>.”
+
+**D9 · normal · A suspension an earlier version recorded**
+
+Earlier versions did not record when WHMCS's own suspension began, so the plugin tells such a suspension by
+WHMCS's suspension reason instead. This case clears that record, which looks the same to the plugin.
+
+1. Run Module Commands → “Suspend” with the reason `Overdue on Payment`.
+2. In WHMCS's database, run:
+
+   ```sql
+   UPDATE mod_signnet_services SET whmcs_suspended_at = NULL WHERE service_id = <id>;
+   ```
+
+3. Click “Refresh from Sign.net”, then open the addon's Dashboard.
+4. In the console's Accounts list, open the p01 row, click “Unsuspend” and confirm with “Unsuspend”. Then click
+   “Suspend” in its Suspension box, give the reason `QA console test`, and click “Suspend” in the dialog.
+5. Run the SQL of step 2 again, click “Refresh from Sign.net”, and open the Dashboard.
+6. Run Module Commands → “Unsuspend”.
+
+- [ ] In step 3, the Dashboard does not list the service: its portal's suspension has WHMCS's reason.
+- [ ] In step 5, the Dashboard lists “Suspended outside WHMCS”: the console's reason is not WHMCS's.
+- [ ] Step 6 succeeds, and “Portal status” reads “Active”.
+
 ### E. Plan changes
 
 Also on the p01 service.
@@ -948,6 +1002,7 @@ fails, the assumption is probably what broke.
 | The columns of `tblcustomfields`, `tblemailtemplates`, `tblproductconfig*` and `tblpricing` | A1 (the template), B6 and B7 (fields and pricing), B9 (the option group) |
 | `-1.00` marks a billing cycle a product does not offer | B6: only Monthly is offered |
 | A module call is an administrator's when WHMCS defines `ADMINAREA` outside the command line, so the cron and a client's payment are not | G7 (the cron's Terminate is refused), D6 (the Unsuspend after the client's payment is refused, an administrator's is not) |
+| WHMCS keeps the reason it suspended a service for in `tblhosting.suspendreason`, as it passed it to the module | D9 step 3: the Dashboard does not list the service |
 | Moving a service to another client keeps its `tblhosting.orderid` | G9 step 2: the refresh succeeds |
 
 It also checks what the plugin assumes of Sign.net's reseller console, which it calls with the API key:

@@ -397,11 +397,13 @@ final class ServerModuleTest extends ModuleTestCase
         $link = $this->links->find(self::SERVICE_ID);
         self::assertNotNull($link);
         $this->links->save($link->with(['suspendedOutsideAt' => 1_900_000_000]));
+        $this->queueToken();
+        $this->transport->queueData(R::label());
 
         $result = signnet_UnsuspendAccount($this->params());
 
         self::assertStringStartsWith('Not unsuspended: the portal was suspended outside WHMCS', $result);
-        self::assertSame([], $this->calls());
+        self::assertSame([...self::FIRST_CALLS, 'GET ' . R::LABEL], $this->calls(), 'It is read, never lifted.');
     }
 
     /**

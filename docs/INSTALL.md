@@ -167,13 +167,16 @@ kept, so you are still billed for the portal; terminating is what ends that. WHM
 reason is passed to Sign.net, where you and Sign.net staff can see it; the portal's people never
 do. If Sign.net itself suspended a portal, Unsuspend explains that only Sign.net can lift it.
 
-WHMCS lifts on its own only the suspensions it made. A portal that was already suspended outside
-WHMCS, in your Sign.net console or by Sign.net, keeps that suspension when WHMCS suspends the
-service, and WHMCS's automatic unsuspension, for example once the client pays an overdue invoice,
-leaves it in place and fails with a message saying so. The dashboard lists such a service as
-*Suspended outside WHMCS*. Lift the suspension in the console, or click **Unsuspend** on the service
-page: an administrator's Unsuspend lifts it. A payment you record yourself in the admin area counts
-as your action too, so the unsuspension WHMCS runs after it lifts the suspension.
+WHMCS lifts on its own only the suspension it made. Before WHMCS's automatic unsuspension, for
+example once the client pays an overdue invoice, the plugin reads the portal from Sign.net, and it
+lifts the suspension only if it is the one WHMCS made. A portal that is no longer suspended at all
+is left as it is. A suspension made in your Sign.net console, whether before WHMCS suspended the
+service or since, in place of WHMCS's own, is left in place, and the unsuspension fails with a
+message saying so; so is one Sign.net made, with a message saying that only Sign.net can lift it.
+The dashboard lists a suspended service whose portal holds such a suspension as *Suspended outside
+WHMCS*. To lift one made in your console, lift it there, or click **Unsuspend** on the service page:
+an administrator's Unsuspend lifts it, and so does the unsuspension WHMCS runs after a payment you
+record yourself in the admin area. Only Sign.net can lift one it made.
 
 ### When something fails
 
