@@ -6,10 +6,13 @@ namespace SignNet\Tests\Unit\Whmcs\Provisioning;
 
 use PHPUnit\Framework\Attributes\Test;
 use SignNet\ResellerApi\Exception\TransportException;
+use SignNet\ResellerApi\Http\Request;
 use SignNet\ResellerApi\Http\Response;
+use SignNet\ResellerApi\Http\Transport;
 use SignNet\Tests\Support\ModuleTestCase;
 use SignNet\Tests\Support\SignNetResponses as R;
 use SignNet\Tests\Support\WhmcsFake;
+use SignNet\Tests\Unit\ResellerApi\Fake\FakeTransport;
 use SignNet\Whmcs\ClientFactory;
 use SignNet\Whmcs\Db\Rows;
 use SignNet\Whmcs\Db\ServiceLink;
@@ -397,7 +400,7 @@ final class ProvisionServiceTest extends ModuleTestCase
     }
 
     #[Test]
-    public function aPortalWithNoOwnerYetIsAdoptedWhenItWasCreatedDuringTheCall(): void
+    public function aPortalWithNoOwnerYetRightAfterTheCallIsLinkedByTheNextRunIfItStillHasNone(): void
     {
         $this->queueToken();
         $this->transport->queueData(R::quota());
@@ -405,18 +408,100 @@ final class ProvisionServiceTest extends ModuleTestCase
         $this->transport->queue(self::gatewayPage());
         $this->transport->queueData(R::labels([R::TENANT_ID => 'sign.acme.test']));
         $this->transport->queueData(R::labelCreatedAt(time(), null));
+
+        $first = $this->service()->create($this->params());
+
+        self::assertSame(
+            'Sign.net did not confirm that the portal was created. A portal on sign.acme.test may be the one this '
+            . 'call made, but it has no owner yet, so it cannot be told apart from another order\'s. Run Create '
+            . 'again in a minute: it links the portal if it still has no owner then, or if its owner has the email '
+            . 'address this call gave.',
+            $first,
+        );
+        self::assertFalse($this->link()->isLinked());
+        self::assertSame(ServiceLink::ATTEMPT_UNKNOWN, $this->link()->attemptState);
+        self::assertNotContains('GET ' . self::PACKAGE_OF_TENANT, $this->calls(), 'The portal is left as it is.');
+
+        $this->transport->queueData(R::labels([R::TENANT_ID => 'sign.acme.test']));
+        $this->transport->queueData(R::labelCreatedAt(time(), null));
         $this->transport->queueData(R::assignment('pkg-1'));
 
-        $result = $this->service()->create($this->params());
-
-        self::assertSame('success', $result);
+        self::assertSame('success', $this->service()->create($this->params()));
         self::assertSame(R::TENANT_ID, $this->link()->tenantId);
+        self::assertCount(1, $this->requestsTo(R::PROVISION_CALL));
         self::assertContains(
             'Sign.net: service #101 linked to the portal sign.acme.test. Its provisioning call went unanswered, and '
             . 'this portal fits that call: it has the address the call asked for, was created after the call was '
             . 'sent (allowing ten minutes for clock differences), and has no owner yet.',
             WhmcsFake::activityMessages(),
         );
+    }
+
+    #[Test]
+    public function aPortalWithNoOwnerYetRightAfterTheCallIsNotTakenOnceAnotherOwnerAppears(): void
+    {
+        $this->queueToken();
+        $this->transport->queueData(R::quota());
+        $this->transport->queueData(R::package());
+        $this->transport->queueJson(500, ['status' => 'Fail', 'error' => ['code' => 'INTERNAL_SERVER_ERROR']]);
+        $this->transport->queueData(R::labels([R::TENANT_ID => 'sign.acme.test']));
+        $this->transport->queueData(R::labelCreatedAt(time(), null));
+        $this->transport->queueData(R::labels([R::TENANT_ID => 'sign.acme.test']));
+        $this->transport->queueData(R::labelCreatedAt(time(), 'someone@other.test'));
+
+        $first = $this->service()->create($this->params());
+        $second = $this->service()->create($this->params());
+
+        self::assertStringStartsWith('Sign.net did not confirm that the portal was created. A portal on', $first);
+        self::assertSame(self::TAKEN, $second, 'Another order made it, at the same moment.');
+        self::assertFalse($this->link()->isLinked());
+        self::assertSame(ServiceLink::ATTEMPT_FAILED, $this->link()->attemptState);
+        self::assertSame(0, $this->transport->pendingCount());
+    }
+
+    #[Test]
+    public function aTakenHostnameWithAPortalThatHasNoOwnerYetWaitsForTheNextRun(): void
+    {
+        $this->saveUnansweredAttempt(time() - 3600);
+        $this->queueToken();
+        $this->transport->queueData(R::labels());
+        $this->transport->queueData(R::quota());
+        $this->transport->queueData(R::package());
+        $this->transport->queueError(400, 'host_taken');
+        $this->transport->queueData(R::labels([R::TENANT_ID => 'sign.acme.test']));
+        $this->transport->queueData(R::labelCreatedAt(time(), null));
+
+        $result = $this->service()->create($this->params());
+
+        self::assertStringStartsWith('Sign.net did not confirm that the portal was created. A portal on', $result);
+        self::assertFalse($this->link()->isLinked());
+        self::assertSame(ServiceLink::ATTEMPT_UNKNOWN, $this->link()->attemptState);
+    }
+
+    #[Test]
+    public function aPortalOnAnAddressAnotherServiceIsStillProvisioningIsNotTaken(): void
+    {
+        $this->insertService(102, 'Pending', 501);
+        $this->provisionWhileAnotherServiceIsSending(new ServiceLink(
+            102,
+            $this->serverId,
+            hostname: 'sign.acme.test',
+            ownerEmail: 'grace@other.test',
+            attemptState: ServiceLink::ATTEMPT_UNKNOWN,
+            attemptAt: time(),
+        ));
+        $this->queueToken();
+        $this->transport->queueData(R::quota());
+        $this->transport->queueData(R::package());
+        $this->transport->queueJson(500, ['status' => 'Fail', 'error' => ['code' => 'INTERNAL_SERVER_ERROR']]);
+        $this->transport->queueData(R::labels([R::TENANT_ID => 'sign.acme.test']));
+        $this->transport->queueData(R::labelCreatedAt(time(), 'ada@acme.test'));
+
+        $result = $this->service()->create($this->params());
+
+        self::assertSame(self::TAKEN, $result, 'Service 102\'s call may have made it.');
+        self::assertFalse($this->link()->isLinked());
+        self::assertNotContains('GET ' . self::PACKAGE_OF_TENANT, $this->calls(), 'The portal is left as it is.');
     }
 
     #[Test]
@@ -1206,6 +1291,32 @@ final class ProvisionServiceTest extends ModuleTestCase
             attemptState: ServiceLink::ATTEMPT_UNKNOWN,
             attemptAt: $attemptAt,
         ));
+    }
+
+    /**
+     * Saves $other just as service 101's provisioning call is sent: another service's call for the same
+     * address, which went out at the same moment, after 101 checked that no service used the address.
+     */
+    private function provisionWhileAnotherServiceIsSending(ServiceLink $other): void
+    {
+        $links = $this->links;
+        ClientFactory::useTestDoubles(new class ($this->transport, $links, $other) implements Transport {
+            public function __construct(
+                private readonly FakeTransport $inner,
+                private readonly ServiceRepository $links,
+                private readonly ServiceLink $other,
+            ) {
+            }
+
+            public function send(Request $request): Response
+            {
+                if ($request->method === 'POST' && $request->target() === R::LABELS) {
+                    $this->links->save($this->other);
+                }
+
+                return $this->inner->send($request);
+            }
+        }, $this->sleeper);
     }
 
     /**

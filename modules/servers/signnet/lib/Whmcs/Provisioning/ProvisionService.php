@@ -364,14 +364,15 @@ final class ProvisionService
             return $this->hostnameTaken($link);
         }
         try {
-            [$found, $portal] = $this->unanswered->find($link);
+            [$found, $portal] = $this->unanswered->find($link, true);
         } catch (ApiException $exception) {
             return $this->inDoubt($link, $exception);
         }
+        if ($portal !== null && $found === UnansweredCall::MADE) {
+            return $this->adoptAndFinish($link, $portal, $product, $params);
+        }
 
-        return $portal !== null && $found === UnansweredCall::MADE
-            ? $this->adoptAndFinish($link, $portal, $product, $params)
-            : $this->hostnameTaken($link);
+        return $found === UnansweredCall::NO_OWNER_YET ? $this->ownerStillToCome($link) : $this->hostnameTaken($link);
     }
 
     /**
@@ -390,12 +391,15 @@ final class ProvisionService
             );
         }
         try {
-            [$found, $portal] = $this->unanswered->find($link);
+            [$found, $portal] = $this->unanswered->find($link, true);
         } catch (ApiException) {
             return $this->inDoubt($link, $exception);
         }
         if ($portal !== null && $found === UnansweredCall::MADE) {
             return $this->adoptAndFinish($link, $portal, $product, $params);
+        }
+        if ($found === UnansweredCall::NO_OWNER_YET) {
+            return $this->ownerStillToCome($link);
         }
         if ($found !== UnansweredCall::NONE) {
             return $this->hostnameTaken($link);
@@ -419,6 +423,21 @@ final class ProvisionService
             'Sign.net did not confirm that the portal was created. Running Create again is safe: it looks for '
             . 'the portal first. Do not change the portal address before it has. Details: %s',
             ErrorText::describe($exception),
+        ));
+    }
+
+    /**
+     * Right after the call, the portal on its address has no owner yet, so it may be another order's
+     * portal on the same address, made at the same moment. The call stays in doubt for the next run.
+     */
+    private function ownerStillToCome(ServiceLink $link): string
+    {
+        return $this->fail($link, sprintf(
+            'Sign.net did not confirm that the portal was created. A portal on %s may be the one this call made, '
+            . 'but it has no owner yet, so it cannot be told apart from another order\'s. Run Create again in a '
+            . 'minute: it links the portal if it still has no owner then, or if its owner has the email address '
+            . 'this call gave.',
+            $link->hostname,
         ));
     }
 

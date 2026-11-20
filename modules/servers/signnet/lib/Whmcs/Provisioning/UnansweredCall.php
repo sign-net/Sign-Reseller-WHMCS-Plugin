@@ -16,9 +16,11 @@ use SignNet\Whmcs\Db\ServiceRepository;
  *
  * Sign.net has no idempotency keys, so that portal is known by what the call asked for, which the
  * link saved before the call records: it is the reseller's portal on the call's address, no other
- * WHMCS service holds it, it was created after the call was sent, and its owner has the email
- * address the call gave, which may since have changed on the client. A portal may not have an
- * owner yet, so one without an owner still fits.
+ * WHMCS service holds it or has a call of its own in doubt for that address, it was created after
+ * the call was sent, and its owner has the email address the call gave, which may since have
+ * changed on the client. A new portal can be listed before its owner exists, so one with no owner
+ * fits only when looked at on a later run than the call's: right after a call, it may be another
+ * order's portal, whose owner is still to come, while a portal with none later never gets one.
  */
 final class UnansweredCall
 {
@@ -28,6 +30,8 @@ final class UnansweredCall
     public const OTHERS = 'others';
     /** The portal on the call's address is the one the call made. */
     public const MADE = 'made';
+    /** Right after the call, the portal on its address fits it but has no owner yet: a later run tells. */
+    public const NO_OWNER_YET = 'no_owner_yet';
     /** The portal on the call's address was created since the call, but nothing shows that the call made it. */
     public const UNSURE = 'unsure';
 
@@ -46,13 +50,14 @@ final class UnansweredCall
     /**
      * @param ServiceLink $link As saved before the call: its hostname, owner email and attemptAt are
      *     the call's.
+     * @param bool $isRightAfterTheCall Whether the call was sent in this run.
      *
      * @return array{string, PrivateLabel|null} What is on the call's address, as one of this class's
      *     constants, and the portal there read in full when it had to be.
      *
      * @throws ApiException
      */
-    public function find(ServiceLink $link): array
+    public function find(ServiceLink $link, bool $isRightAfterTheCall = false): array
     {
         $label = $this->listed($link->hostname);
         if ($label === null) {
@@ -66,9 +71,14 @@ final class UnansweredCall
         if ($portal->createdAt < ($link->attemptAt - self::CLOCK_SKEW_SECONDS) * 1000) {
             return [self::OTHERS, $portal];
         }
-        $isOwnedAsCalled = $portal->owner === null || strcasecmp($portal->owner->email, $link->ownerEmail) === 0;
+        if ($this->links->hasOtherCallInDoubt($link->hostname, $link->serviceId)) {
+            return [self::UNSURE, $portal];
+        }
+        if ($portal->owner !== null) {
+            return [strcasecmp($portal->owner->email, $link->ownerEmail) === 0 ? self::MADE : self::UNSURE, $portal];
+        }
 
-        return [$isOwnedAsCalled ? self::MADE : self::UNSURE, $portal];
+        return [$isRightAfterTheCall ? self::NO_OWNER_YET : self::MADE, $portal];
     }
 
     /**

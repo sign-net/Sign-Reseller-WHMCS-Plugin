@@ -58,6 +58,16 @@ final class ServiceRepository
         return $row === null ? null : ServiceLink::fromRow($row);
     }
 
+    /** Whether another service has a provisioning call in doubt for `$hostname`. */
+    public function hasOtherCallInDoubt(string $hostname, int $exceptServiceId): bool
+    {
+        return Capsule::table(Schema::SERVICES)
+            ->where('hostname', $hostname)
+            ->where('attempt_state', ServiceLink::ATTEMPT_UNKNOWN)
+            ->where('service_id', '!=', $exceptServiceId)
+            ->exists();
+    }
+
     public function hostnameInUse(string $hostname): bool
     {
         return Capsule::table(Schema::SERVICES)->where('hostname', $hostname)->exists();
