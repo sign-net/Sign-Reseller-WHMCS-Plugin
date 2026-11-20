@@ -136,7 +136,10 @@ On the service's Overview in the client area:
 The **Sign.net** fields show what Sign.net reports about the portal: status, owner, package and
 add-ons, users, and the domain with any DNS records still missing. They also list anything that
 needs you, for example a held order, a failed call, or WHMCS saying *Active* while the portal is
-suspended. The fields refresh at most once a minute; **Refresh from Sign.net** reads them now.
+suspended. The fields refresh at most once a minute. While Sign.net is rate limiting, failing or out
+of reach, this page and the client area wait before asking again: a minute, or as long as Sign.net
+asks, up to an hour. For a portal deleted outside WHMCS they wait a day. **Refresh from Sign.net**
+reads them now.
 
 | Button | Use it when |
 |---|---|

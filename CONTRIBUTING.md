@@ -78,7 +78,9 @@ committed.
   reseller, shared by all its keys. A new portal's order reads only `billing/quota`, its package and
   the add-ons it orders (the list once per run, through `AddonCatalogue`), and trusts the package
   outcome in the provisioning answer rather than reading the assignment back. Every read added there
-  lowers how many orders a minute WHMCS can take.
+  lowers how many orders a minute WHMCS can take. Pages read a portal through `Module\PortalCache`,
+  which remembers a failed read for a while too, so reloading a page while Sign.net cannot answer
+  does not spend them.
 - **ConfigOptions are positional.** WHMCS stores them as `configoption1..N`: only ever append.
 - **The plugin's tables are never dropped.** `Db\Schema::install()` is idempotent and only adds.
 - **Read query rows through `Db\Rows`**; PHPStan rejects property access on the untyped objects the

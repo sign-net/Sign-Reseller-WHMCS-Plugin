@@ -23,8 +23,9 @@ Run it on WHMCS 8.13 first. Then repeat the critical cases on WHMCS 9.0 ([J](#j-
   key and renews it about hourly, so A2 to A4, which try three keys, use three of the five. If a message says
   “Sign.net is rate limiting these requests; try again in <n> seconds.” or “Token minting for this Sign.net API
   key is paused until …” where the case does not expect it, wait that long. A3 expects the second.
-- **The service page's Sign.net fields can be up to a minute old.** After changing something outside WHMCS,
-  click “Refresh from Sign.net”.
+- **The service page's Sign.net fields can be up to a minute old.** While Sign.net is rate limiting, failing or
+  out of reach, they wait a minute before asking again, or longer when Sign.net asks, and for a portal deleted
+  outside WHMCS a day. After changing something outside WHMCS, click “Refresh from Sign.net”.
 - **Every case has an id and a priority:**
   - **critical** cases are the smoke test;
   - **high** cases cover the rest of the plugin's main job;
@@ -684,7 +685,9 @@ Run “Terminate” on the same service again.
 - [ ] After step 4:
   - “Portal status” reads “Unavailable”, with “The portal p02.qa1.example.com no longer exists in Sign.net; it was
     deleted outside WHMCS. Unlink it, or terminate the service.”;
-  - the Dashboard lists “Portal missing from Sign.net”.
+  - the Dashboard lists “Portal missing from Sign.net”;
+  - reloading the service page, or the client's page, adds no call to the module log: a portal deleted outside
+    WHMCS is looked for again only after a day, or on “Refresh from Sign.net”.
 - [ ] After step 5, Terminate succeeds and “Portal status” reads “Deleted”.
 
 **G5 · normal · Deleting a WHMCS service whose portal is live**

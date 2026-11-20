@@ -351,7 +351,10 @@ final class ServerModule
         try {
             Schema::ensure();
             $result = $work();
-        } catch (PlanException | InvalidOrderException | PortalGoneException | OrphanedLinkException $exception) {
+        } catch (
+            PlanException | InvalidOrderException | PortalGoneException | PortalUnavailableException
+            | OrphanedLinkException $exception
+        ) {
             $result = $exception->getMessage();
         } catch (ApiException $exception) {
             // The transport already put the failed call in the module log.
@@ -387,7 +390,7 @@ final class ServerModule
         }
         try {
             return [PortalCache::get(ClientFactory::fromParams($params), $link), null];
-        } catch (PortalGoneException $exception) {
+        } catch (PortalGoneException | PortalUnavailableException $exception) {
             return [null, $exception->getMessage()];
         } catch (ApiException | \InvalidArgumentException $exception) {
             return [null, ErrorText::describe($exception)];
