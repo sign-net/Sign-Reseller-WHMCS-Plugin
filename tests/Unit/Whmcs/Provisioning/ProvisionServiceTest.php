@@ -33,6 +33,9 @@ final class ProvisionServiceTest extends ModuleTestCase
     private const TAKEN = 'sign.acme.test is already in use on Sign.net, and a hostname can never be reused. Ask the '
         . 'customer for another portal address, or use "Link existing portal" if the portal is already yours.';
 
+    /** The client's email address once changed since an earlier call gave ada@acme.test. */
+    private const NEW_EMAIL = ['clientsdetails' => ['email' => 'ada.new@acme.test']];
+
     private ServiceRepository $links;
 
     protected function setUp(): void
@@ -321,7 +324,8 @@ final class ProvisionServiceTest extends ModuleTestCase
         self::assertContains(
             'Sign.net: service #101 linked to the portal sign.acme.test. Its provisioning call went unanswered, and '
             . 'this portal fits that call: it has the address the call asked for, was created after the call was '
-            . 'sent (allowing ten minutes for clock differences), and is owned by the client\'s email address.',
+            . 'sent (allowing ten minutes for clock differences), and is owned by ada@acme.test, the email address '
+            . 'the call gave.',
             WhmcsFake::activityMessages(),
         );
     }
@@ -450,6 +454,22 @@ final class ProvisionServiceTest extends ModuleTestCase
     }
 
     #[Test]
+    public function theNextRunAdoptsThePortalOwnedByTheEmailAddressTheCallGave(): void
+    {
+        $this->saveUnansweredAttempt(time() - 3600);
+        $this->queueToken();
+        $this->transport->queueData(R::labels([R::TENANT_ID => 'sign.acme.test']));
+        $this->transport->queueData(R::labelCreatedAt(time() - 3500, 'ada@acme.test'));
+        $this->transport->queueData(R::assignment('pkg-1'));
+
+        $result = $this->service()->create($this->params(self::NEW_EMAIL));
+
+        self::assertSame('success', $result, 'The client\'s email address changed after the call.');
+        self::assertSame([R::TENANT_ID, 'ada@acme.test'], [$this->link()->tenantId, $this->link()->ownerEmail]);
+        self::assertSame([], $this->requestsTo(R::PROVISION_CALL));
+    }
+
+    #[Test]
     public function theNextRunReportsAPortalMadeBeforeTheCallAsTakingTheHostname(): void
     {
         $this->saveUnansweredAttempt(time());
@@ -512,9 +532,94 @@ final class ProvisionServiceTest extends ModuleTestCase
     }
 
     #[Test]
-    public function aNewAddressAfterALostAnswerIsUsedWhenTheCallMadeNoPortal(): void
+    public function aNewAddressAfterALostAnswerLinksThePortalOwnedByTheEmailAddressTheCallGave(): void
     {
         $this->saveUnansweredAttempt(time() - 60, 'old.acme.test');
+        $this->queueToken();
+        $this->transport->queueData(R::labels([R::TENANT_ID => 'old.acme.test']));
+        $this->transport->queueData(['primaryHost' => 'old.acme.test'] + R::labelCreatedAt(time(), 'ada@acme.test'));
+
+        $result = $this->service()->create($this->params(self::NEW_EMAIL));
+
+        self::assertStringStartsWith('The portal address was not changed to sign.acme.test.', $result);
+        self::assertSame([R::TENANT_ID, 'old.acme.test'], [$this->link()->tenantId, $this->link()->hostname]);
+        self::assertSame([], $this->requestsTo(R::PROVISION_CALL), 'No second portal.');
+    }
+
+    #[Test]
+    public function aNewAddressAfterALostAnswerWaitsWhenTheOldOnesNewPortalHasAnotherOwner(): void
+    {
+        $this->saveUnansweredAttempt(time() - 3600, 'old.acme.test');
+        $this->queueToken();
+        $this->transport->queueData(R::labels([R::TENANT_ID => 'old.acme.test']));
+        $this->transport->queueData(['primaryHost' => 'old.acme.test'] + R::labelCreatedAt(time() - 3500, 'x@y.test'));
+
+        $result = $this->service()->create($this->params());
+
+        self::assertSame(
+            'Resolve the earlier provisioning call for old.acme.test before using sign.acme.test: its answer never '
+            . 'arrived, and a portal created on old.acme.test since may be the one it made, though nothing confirms '
+            . 'it. If that portal is this service\'s, link it with "Link existing portal". If it is not, set the '
+            . 'portal address back to old.acme.test and run Create, which then reports old.acme.test as in use; '
+            . 'sign.acme.test can be used after that.',
+            $result,
+        );
+        $link = $this->link();
+        self::assertSame(['old.acme.test', ServiceLink::ATTEMPT_UNKNOWN], [$link->hostname, $link->attemptState]);
+        self::assertFalse($link->isLinked());
+        self::assertSame([], $this->requestsTo(R::PROVISION_CALL), 'The portal may be the call\'s.');
+    }
+
+    #[Test]
+    public function aPortalThatIsNotTheCallsCanBeSetAsideToUseANewAddress(): void
+    {
+        $this->saveUnansweredAttempt(time() - 3600, 'old.acme.test');
+        $this->queueToken();
+        $theirs = ['primaryHost' => 'old.acme.test'] + R::labelCreatedAt(time() - 3500, 'x@y.test');
+        $this->transport->queueData(R::labels([R::TENANT_ID => 'old.acme.test']));
+        $this->transport->queueData($theirs);
+        $this->transport->queueData(R::labels([R::TENANT_ID => 'old.acme.test']));
+        $this->transport->queueData($theirs);
+        $this->transport->queueData(R::quota());
+        $this->transport->queueData(R::package());
+        $this->transport->queueData(R::provisioned(R::assigned()));
+
+        $waiting = $this->service()->create($this->params());
+        $setAside = $this->service()->create($this->params(['customfields' => ['Portal address' => 'old.acme.test']]));
+        $created = $this->service()->create($this->params());
+
+        self::assertStringStartsWith('Resolve the earlier provisioning call for old.acme.test', $waiting);
+        self::assertStringStartsWith('old.acme.test is already in use on Sign.net', $setAside);
+        self::assertSame('success', $created);
+        self::assertSame(['sign.acme.test', R::TENANT_ID], [$this->link()->hostname, $this->link()->tenantId]);
+        self::assertCount(1, $this->requestsTo(R::PROVISION_CALL));
+    }
+
+    #[Test]
+    public function aNewAddressAfterALostAnswerWaitsWhileTheCallMayStillMakeItsPortal(): void
+    {
+        $sentAt = time() - 60;
+        $this->saveUnansweredAttempt($sentAt, 'old.acme.test');
+        $this->queueToken();
+        $this->transport->queueData(R::labels());
+
+        $result = $this->service()->create($this->params());
+
+        self::assertSame(
+            'Resolve the earlier provisioning call for old.acme.test before using sign.acme.test: its answer never '
+            . 'arrived, and it was sent less than ten minutes ago, so it may still make a portal on old.acme.test. '
+            . 'Run Create again after ' . gmdate('Y-m-d H:i', $sentAt + 600) . ' UTC to look once more.',
+            $result,
+        );
+        $link = $this->link();
+        self::assertSame(['old.acme.test', ServiceLink::ATTEMPT_UNKNOWN], [$link->hostname, $link->attemptState]);
+        self::assertSame([], $this->requestsTo(R::PROVISION_CALL));
+    }
+
+    #[Test]
+    public function aNewAddressAfterALostAnswerIsUsedWhenTheCallMadeNoPortal(): void
+    {
+        $this->saveUnansweredAttempt(time() - 3600, 'old.acme.test');
         $this->queueToken();
         $this->transport->queueData(R::labels());
         $this->transport->queueData(R::quota());
@@ -552,7 +657,7 @@ final class ProvisionServiceTest extends ModuleTestCase
     #[Test]
     public function aNewAddressAfterALostAnswerLeavesNothingInDoubtOnceTheOldOneIsClear(): void
     {
-        $this->saveUnansweredAttempt(time() - 60, 'old.acme.test');
+        $this->saveUnansweredAttempt(time() - 3600, 'old.acme.test');
         $this->queueToken();
         $this->transport->queueData(R::labels());
         $this->transport->queueData(R::quota(['seats' => 4]));

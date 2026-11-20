@@ -14,13 +14,26 @@ use SignNet\Whmcs\Db\ServiceRepository;
 /**
  * Looks for the portal a service's unanswered provisioning call made.
  *
- * Sign.net has no idempotency keys, so that portal is known by what the call asked for: it is the
- * reseller's portal on the call's address, no other WHMCS service holds it, it was created after
- * the call was sent, and its owner has the client's email address. A portal may not have an owner
- * yet, so one without an owner still fits.
+ * Sign.net has no idempotency keys, so that portal is known by what the call asked for, which the
+ * link saved before the call records: it is the reseller's portal on the call's address, no other
+ * WHMCS service holds it, it was created after the call was sent, and its owner has the email
+ * address the call gave, which may since have changed on the client. A portal may not have an
+ * owner yet, so one without an owner still fits.
  */
 final class UnansweredCall
 {
+    /** No portal is on the call's address. */
+    public const NONE = 'none';
+    /** The portal on the call's address is not the call's: it is older than the call, or another service holds it. */
+    public const OTHERS = 'others';
+    /** The portal on the call's address is the one the call made. */
+    public const MADE = 'made';
+    /** The portal on the call's address was created since the call, but nothing shows that the call made it. */
+    public const UNSURE = 'unsure';
+
+    /** How long after it was sent an unanswered call may still be making its portal. */
+    public const RUNNING_SECONDS = 600;
+
     /** How far Sign.net's clock may be behind WHMCS's. */
     private const CLOCK_SKEW_SECONDS = 600;
 
@@ -31,37 +44,53 @@ final class UnansweredCall
     }
 
     /**
-     * @param ServiceLink $link Its attemptAt says when the unanswered call was sent.
+     * @param ServiceLink $link As saved before the call: its hostname, owner email and attemptAt are
+     *     the call's.
      *
-     * @return array{PrivateLabelSummary|null, PrivateLabel|null} The reseller's portal on $hostname, if
-     *     it has one, and that portal read in full when it is the one the call made.
+     * @return array{string, PrivateLabel|null} What is on the call's address, as one of this class's
+     *     constants, and the portal there read in full when it had to be.
      *
      * @throws ApiException
      */
-    public function find(ServiceLink $link, string $hostname, string $ownerEmail): array
+    public function find(ServiceLink $link): array
     {
-        foreach ($this->client->listPrivateLabels() as $label) {
-            if ($label->primaryHost === $hostname) {
-                return [$label, $this->madeBy($link, $label, $ownerEmail)];
-            }
+        $label = $this->listed($link->hostname);
+        if ($label === null) {
+            return [self::NONE, null];
         }
+        $holder = $this->links->findByTenant($label->tenantId);
+        if ($link->attemptAt === null || ($holder !== null && $holder->serviceId !== $link->serviceId)) {
+            return [self::OTHERS, null];
+        }
+        $portal = $this->client->getPrivateLabel($label->tenantId);
+        if ($portal->createdAt < ($link->attemptAt - self::CLOCK_SKEW_SECONDS) * 1000) {
+            return [self::OTHERS, $portal];
+        }
+        $isOwnedAsCalled = $portal->owner === null || strcasecmp($portal->owner->email, $link->ownerEmail) === 0;
 
-        return [null, null];
+        return [$isOwnedAsCalled ? self::MADE : self::UNSURE, $portal];
+    }
+
+    /**
+     * Whether the call was sent too recently to be sure it has finished: one whose answer was lost may
+     * still be making its portal.
+     */
+    public static function mayStillBeRunning(ServiceLink $link): bool
+    {
+        return $link->attemptAt !== null && time() - $link->attemptAt < self::RUNNING_SECONDS;
     }
 
     /**
      * @throws ApiException
      */
-    private function madeBy(ServiceLink $link, PrivateLabelSummary $label, string $ownerEmail): ?PrivateLabel
+    private function listed(string $hostname): ?PrivateLabelSummary
     {
-        $holder = $this->links->findByTenant($label->tenantId);
-        if ($link->attemptAt === null || ($holder !== null && $holder->serviceId !== $link->serviceId)) {
-            return null;
+        foreach ($this->client->listPrivateLabels() as $label) {
+            if ($label->primaryHost === $hostname) {
+                return $label;
+            }
         }
-        $portal = $this->client->getPrivateLabel($label->tenantId);
-        $isCreatedAfterTheCall = $portal->createdAt >= ($link->attemptAt - self::CLOCK_SKEW_SECONDS) * 1000;
-        $isTheClients = $portal->owner === null || strcasecmp($portal->owner->email, $ownerEmail) === 0;
 
-        return $isCreatedAfterTheCall && $isTheClients ? $portal : null;
+        return null;
     }
 }

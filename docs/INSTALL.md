@@ -185,11 +185,14 @@ as your action too, so the unsuspension WHMCS runs after it lifts the suspension
   that starts “Sign.net: "Check again" on service #<id> failed:”.
 - **Retrying Create is always safe.** If Sign.net's answer was lost, the next run looks for the
   portal before trying again, so it never makes a second one. It links a portal only if it fits the
-  lost call: on the address the call asked for, created since the call, and owned by the client or by
-  nobody yet. Any other portal on that address is reported as already in use; if it is yours, link
-  it with **Link existing portal**. Leave the portal address as it is until that run: a run on a
-  changed address still looks at the old one first, and links the portal it finds there rather than
-  make a second.
+  lost call: on the address the call asked for, created since the call, and owned by the email
+  address the call gave (the client's at the time, even if it has changed since) or by nobody yet.
+  Any other portal on that address is reported as already in use; if it is yours, link it with
+  **Link existing portal**. Leave the portal address as it is until that run. A run on a changed
+  address still looks at the old one first: it links the portal the call made there rather than
+  make a second, and it keeps the new address waiting while the call may still be running (ten
+  minutes after it was sent), or while a portal created on the old address since the call might be
+  the call's. The message then says how to go on.
 - **"…was made for a WHMCS service since deleted…"**: WHMCS gave this service the id of a deleted
   service whose portal is still live. MySQL 5.7 and MariaDB before 10.2.4 can reuse the newest id
   after a restart, and an import can too. The plugin knows each service by the WHMCS order it came

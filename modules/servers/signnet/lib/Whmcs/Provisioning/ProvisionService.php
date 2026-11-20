@@ -158,7 +158,7 @@ final class ProvisionService
             $link = $link->with(['attemptState' => ServiceLink::ATTEMPT_NONE, 'attemptAt' => null]);
             $inDoubt = false;
         }
-        $settled = $inDoubt ? $this->settleUnanswered($link, $order, $product, $params) : null;
+        $settled = $inDoubt ? $this->settleUnanswered($link, $product, $params) : null;
         if ($settled !== null) {
             return $settled;
         }
@@ -169,34 +169,33 @@ final class ProvisionService
     }
 
     /**
-     * Before trying again, looks for the portal the service's unanswered provisioning call made.
+     * Before trying again, looks for the portal the service's unanswered provisioning call made. It
+     * is linked with what the call asked for, which is what Sign.net made it with.
      *
      * @param array<string, mixed> $params
      *
      * @return string|null What the run answers; null when the call made no portal, so trying again
      *     is safe.
      */
-    private function settleUnanswered(
-        ServiceLink $link,
-        OrderDetails $order,
-        ProductSettings $product,
-        array $params,
-    ): ?string {
+    private function settleUnanswered(ServiceLink $link, ProductSettings $product, array $params): ?string
+    {
         try {
-            [$taken, $made] = $this->unanswered->find($link, $order->hostname, $order->ownerEmail);
+            [$found, $portal] = $this->unanswered->find($link);
         } catch (ApiException $exception) {
             return $this->inDoubt($link, $exception);
         }
-        if ($made !== null) {
-            return $this->adoptAndFinish(self::withOrder($link, $order), $made, $product, $params);
+        if ($portal !== null && $found === UnansweredCall::MADE) {
+            return $this->adoptAndFinish($link, $portal, $product, $params);
         }
 
-        return $taken === null ? null : $this->hostnameTaken(self::withOrder($link, $order));
+        return $found === UnansweredCall::NONE ? null : $this->hostnameTaken($link);
     }
 
     /**
      * The order now names another address than the unanswered call asked for. A portal that call
-     * made is linked rather than left behind, and it keeps its address.
+     * made is linked rather than left behind, and it keeps its address. The new address is used only
+     * once the call surely made none: its address is free and the call has had time to finish, or the
+     * portal there is plainly another's.
      *
      * @param array<string, mixed> $params
      *
@@ -206,29 +205,67 @@ final class ProvisionService
     private function settleBeforeNewAddress(ServiceLink $link, OrderDetails $order, array $params): ?string
     {
         try {
-            [, $made] = $this->unanswered->find($link, $link->hostname, $order->ownerEmail);
+            [$found, $portal] = $this->unanswered->find($link);
         } catch (ApiException $exception) {
-            return $this->fail($link, sprintf(
-                'Resolve the earlier provisioning call for %1$s before using %2$s: its answer never arrived, and '
-                . 'looking for the portal it may have made on %1$s failed. Run Create again to look once more. '
-                . 'Details: %3$s',
+            return $this->fail($link, self::earlierCallUnresolved($link, $order) . sprintf(
+                'looking for the portal it may have made on %s failed. Run Create again to look once more. '
+                . 'Details: %s',
                 $link->hostname,
-                $order->hostname,
                 ErrorText::describe($exception),
             ));
         }
-        if ($made === null) {
-            return null;
+        if ($portal !== null && $found === UnansweredCall::MADE) {
+            return $this->fail($this->adopt($link, $portal, $params), sprintf(
+                'The portal address was not changed to %1$s. The earlier provisioning call, whose answer never '
+                . 'arrived, made a portal on %2$s, and this service now manages it; the plugin cannot move a '
+                . 'portal to another address. Set the service\'s portal address back to %2$s, then run Create '
+                . 'again to finish.',
+                $order->hostname,
+                $link->hostname,
+            ));
         }
+        $why = self::whyTheNewAddressWaits($found, $link, $order);
 
-        return $this->fail($this->adopt($link, $made, $params), sprintf(
-            'The portal address was not changed to %1$s. The earlier provisioning call, whose answer never '
-            . 'arrived, made a portal on %2$s, and this service now manages it; the plugin cannot move a portal '
-            . 'to another address. Set the service\'s portal address back to %2$s, then run Create again to '
-            . 'finish.',
-            $order->hostname,
+        return $why === null ? null : $this->fail($link, self::earlierCallUnresolved($link, $order) . $why);
+    }
+
+    /**
+     * Why the new address cannot be used yet, when the earlier call may have made a portal after all;
+     * null when it surely made none.
+     *
+     * @param string $found What UnansweredCall found on the earlier address.
+     */
+    private static function whyTheNewAddressWaits(string $found, ServiceLink $link, OrderDetails $order): ?string
+    {
+        return match (true) {
+            $found === UnansweredCall::UNSURE => sprintf(
+                'a portal created on %1$s since may be the one it made, though nothing confirms it. If that portal '
+                . 'is this service\'s, link it with "Link existing portal". If it is not, set the portal address '
+                . 'back to %1$s and run Create, which then reports %1$s as in use; %2$s can be used after that.',
+                $link->hostname,
+                $order->hostname,
+            ),
+            $found === UnansweredCall::NONE && UnansweredCall::mayStillBeRunning($link) => sprintf(
+                'it was sent less than ten minutes ago, so it may still make a portal on %s. Run Create again '
+                . 'after %s UTC to look once more.',
+                $link->hostname,
+                gmdate('Y-m-d H:i', (int) $link->attemptAt + UnansweredCall::RUNNING_SECONDS),
+            ),
+            default => null,
+        };
+    }
+
+    /**
+     * How a message starts that keeps the new address waiting for the earlier call; the reason
+     * follows.
+     */
+    private static function earlierCallUnresolved(ServiceLink $link, OrderDetails $order): string
+    {
+        return sprintf(
+            'Resolve the earlier provisioning call for %s before using %s: its answer never arrived, and ',
             $link->hostname,
-        ));
+            $order->hostname,
+        );
     }
 
     /**
@@ -282,7 +319,7 @@ final class ProvisionService
             $result = $this->client->provisionPrivateLabel($this->request($order, $product));
         } catch (ConflictException $exception) {
             if ($exception->errorCode === ErrorCode::HOST_TAKEN) {
-                return $this->onHostnameTaken($link, $order, $product, $params, $inDoubt);
+                return $this->onHostnameTaken($link, $product, $params, $inDoubt);
             }
 
             return $this->fail(
@@ -290,7 +327,7 @@ final class ProvisionService
                 ErrorText::describe($exception),
             );
         } catch (TransportException | ServerException $exception) {
-            return $this->onLostAnswer($link, $order, $product, $params, $exception);
+            return $this->onLostAnswer($link, $product, $params, $exception);
         } catch (ValidationException $exception) {
             return $this->fail(
                 $link->with(['attemptState' => ServiceLink::ATTEMPT_FAILED]),
@@ -321,23 +358,20 @@ final class ProvisionService
     /**
      * @param array<string, mixed> $params
      */
-    private function onHostnameTaken(
-        ServiceLink $link,
-        OrderDetails $order,
-        ProductSettings $product,
-        array $params,
-        bool $inDoubt,
-    ): string {
+    private function onHostnameTaken(ServiceLink $link, ProductSettings $product, array $params, bool $inDoubt): string
+    {
         if (!$inDoubt) {
             return $this->hostnameTaken($link);
         }
         try {
-            [, $made] = $this->unanswered->find($link, $order->hostname, $order->ownerEmail);
+            [$found, $portal] = $this->unanswered->find($link);
         } catch (ApiException $exception) {
             return $this->inDoubt($link, $exception);
         }
 
-        return $made === null ? $this->hostnameTaken($link) : $this->adoptAndFinish($link, $made, $product, $params);
+        return $portal !== null && $found === UnansweredCall::MADE
+            ? $this->adoptAndFinish($link, $portal, $product, $params)
+            : $this->hostnameTaken($link);
     }
 
     /**
@@ -345,7 +379,6 @@ final class ProvisionService
      */
     private function onLostAnswer(
         ServiceLink $link,
-        OrderDetails $order,
         ProductSettings $product,
         array $params,
         ApiException $exception,
@@ -357,14 +390,14 @@ final class ProvisionService
             );
         }
         try {
-            [$taken, $made] = $this->unanswered->find($link, $order->hostname, $order->ownerEmail);
+            [$found, $portal] = $this->unanswered->find($link);
         } catch (ApiException) {
             return $this->inDoubt($link, $exception);
         }
-        if ($made !== null) {
-            return $this->adoptAndFinish($link, $made, $product, $params);
+        if ($portal !== null && $found === UnansweredCall::MADE) {
+            return $this->adoptAndFinish($link, $portal, $product, $params);
         }
-        if ($taken !== null) {
+        if ($found !== UnansweredCall::NONE) {
             return $this->hostnameTaken($link);
         }
         // Sign.net answered in full, and its list has no such portal, so none was made. A call that
@@ -433,7 +466,9 @@ final class ProvisionService
             . 'ten minutes for clock differences), and %s.',
             $adopted->serviceId,
             $adopted->hostname,
-            $portal->owner === null ? 'has no owner yet' : 'is owned by the client\'s email address',
+            $portal->owner === null
+                ? 'has no owner yet'
+                : sprintf('is owned by %s, the email address the call gave', $portal->owner->email),
         ), (int) ($params['userid'] ?? 0));
 
         return $adopted;
