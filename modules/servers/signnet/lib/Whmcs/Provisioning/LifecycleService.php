@@ -15,7 +15,6 @@ use SignNet\Whmcs\Db\OrphanedLinkException;
 use SignNet\Whmcs\Db\ServiceLink;
 use SignNet\Whmcs\Db\ServiceRepository;
 use SignNet\Whmcs\Support\ErrorText;
-use SignNet\Whmcs\Support\Utf16;
 
 /**
  * Suspends, unsuspends and deletes a service's portal.
@@ -26,9 +25,6 @@ use SignNet\Whmcs\Support\Utf16;
  */
 final class LifecycleService
 {
-    /** Sign.net keeps at most this much of a suspension reason, in UTF-16 units. */
-    private const MAX_REASON_LENGTH = 500;
-
     /** How far Sign.net's clock may be behind WHMCS's. */
     private const CLOCK_SKEW_SECONDS = 600;
 
@@ -53,7 +49,7 @@ final class LifecycleService
             return self::withoutPortal($link);
         }
         $clientId = (int) ($params['userid'] ?? 0);
-        $reason = Utf16::truncate(trim((string) ($params['suspendreason'] ?? '')), self::MAX_REASON_LENGTH);
+        $reason = SuspensionReason::fromWhmcs((string) ($params['suspendreason'] ?? ''));
         $calledAt = time();
         try {
             [$suspension, $reasonGiven] = $this->suspendWithReason((string) $link->tenantId, $reason, $clientId);
@@ -107,7 +103,7 @@ final class LifecycleService
     {
         $beganAt = $suspension->suspendedAt === null ? $calledAt : intdiv($suspension->suspendedAt, 1000);
 
-        return trim((string) $suspension->suspendReason) === $reason
+        return SuspensionReason::trimmed((string) $suspension->suspendReason) === $reason
             && $beganAt >= $calledAt - self::CLOCK_SKEW_SECONDS;
     }
 

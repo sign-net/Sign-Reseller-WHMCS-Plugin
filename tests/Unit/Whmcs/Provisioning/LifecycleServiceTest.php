@@ -85,6 +85,30 @@ final class LifecycleServiceTest extends ModuleTestCase
     }
 
     #[Test]
+    public function aLongReasonCutJustAfterASpaceIsStillWhmcss(): void
+    {
+        $this->queueToken();
+        $this->transport->queueData(self::suspendedNow(str_repeat('a', 499)));
+
+        $this->service()->suspend($this->params(['suspendreason' => str_repeat('a', 499) . ' and the rest']));
+
+        self::assertSame(['reason' => str_repeat('a', 499)], self::bodyOf($this->transport->lastRequest()));
+        self::assertNull($this->link()->suspendedOutsideAt);
+    }
+
+    #[Test]
+    public function aReasonEndingInANoBreakSpaceIsStillWhmcss(): void
+    {
+        $this->queueToken();
+        $this->transport->queueData(self::suspendedNow('Overdue on Payment'));
+
+        $this->service()->suspend($this->params(['suspendreason' => "Overdue on Payment\u{00A0}"]));
+
+        self::assertSame(['reason' => 'Overdue on Payment'], self::bodyOf($this->transport->lastRequest()));
+        self::assertNull($this->link()->suspendedOutsideAt);
+    }
+
+    #[Test]
     public function aSuspensionSignNetsClockPutsALittleBeforeTheCallIsStillWhmcss(): void
     {
         $this->queueToken();
