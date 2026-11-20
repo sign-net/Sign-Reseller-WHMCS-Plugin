@@ -6,6 +6,7 @@ namespace SignNet\Tests\Unit\Whmcs\Provisioning;
 
 use PHPUnit\Framework\Attributes\Test;
 use SignNet\ResellerApi\Exception\TransportException;
+use SignNet\ResellerApi\Http\Response;
 use SignNet\Tests\Support\ModuleTestCase;
 use SignNet\Tests\Support\SignNetResponses as R;
 use SignNet\Tests\Support\WhmcsFake;
@@ -28,6 +29,9 @@ final class ProvisionServiceTest extends ModuleTestCase
 
     /** A product that confirms past the allowance, so the provisioning call is the run's first. */
     private const AUTO_CONFIRM = ['configoption2' => 'auto'];
+
+    private const TAKEN = 'sign.acme.test is already in use on Sign.net, and a hostname can never be reused. Ask the '
+        . 'customer for another portal address, or use "Link existing portal" if the portal is already yours.';
 
     private ServiceRepository $links;
 
@@ -231,16 +235,21 @@ final class ProvisionServiceTest extends ModuleTestCase
         $this->transport->queueData(R::package());
         $this->transport->queue(new TransportException('Operation timed out', true));
         $this->transport->queueData(R::labels([R::TENANT_ID => 'sign.acme.test']));
+        $this->transport->queueData(R::labelCreatedAt(time()));
         $this->transport->queueData(R::assignment('pkg-1'));
 
         $result = $this->service()->create($this->params());
 
         self::assertSame('success', $result);
-        self::assertSame(R::TENANT_ID, $this->link()->tenantId);
-        self::assertSame(ServiceLink::ATTEMPT_NONE, $this->link()->attemptState);
+        $link = $this->link();
+        self::assertSame(R::TENANT_ID, $link->tenantId);
+        self::assertSame(ServiceLink::STATE_ACTIVE, $link->state);
+        self::assertSame(ServiceLink::ATTEMPT_NONE, $link->attemptState);
+        self::assertTrue($link->domainSetup['attached'] ?? false, 'Its domain setup is recorded, as for a new one.');
         self::assertContains(
-            'Sign.net: service #101 linked to the portal sign.acme.test that its earlier, unanswered '
-            . 'provisioning created.',
+            'Sign.net: service #101 linked to the portal sign.acme.test. Its provisioning call went unanswered, and '
+            . 'this portal fits that call: it has the address the call asked for, was created after the call was '
+            . 'sent (allowing ten minutes for clock differences), and is owned by the client\'s email address.',
             WhmcsFake::activityMessages(),
         );
     }
@@ -260,12 +269,139 @@ final class ProvisionServiceTest extends ModuleTestCase
         self::assertSame(ServiceLink::ATTEMPT_UNKNOWN, $this->link()->attemptState);
 
         $this->transport->queueData(R::labels([R::TENANT_ID => 'sign.acme.test']));
+        $this->transport->queueData(R::labelCreatedAt(time()));
         $this->transport->queueData(R::assignment('pkg-1'));
 
         $second = $this->service()->create($this->params());
 
         self::assertSame('success', $second);
         self::assertSame(1, count($this->requestsTo(R::PROVISION_CALL)), 'Provisioned only once.');
+    }
+
+    #[Test]
+    public function aPortalThatWasThereBeforeTheCallIsNotAdoptedAfterAnUnreadableAnswer(): void
+    {
+        $this->queueToken();
+        $this->transport->queueData(R::quota());
+        $this->transport->queueData(R::package());
+        $this->transport->queue(self::gatewayPage());
+        $this->transport->queueData(R::labels([R::TENANT_ID => 'sign.acme.test']));
+        $this->transport->queueData(R::labelCreatedAt(time() - 3600));
+
+        $result = $this->service()->create($this->params());
+
+        self::assertSame(self::TAKEN, $result);
+        $link = $this->link();
+        self::assertFalse($link->isLinked());
+        self::assertSame(ServiceLink::ATTEMPT_FAILED, $link->attemptState);
+        self::assertNotContains('GET ' . self::PACKAGE_OF_TENANT, $this->calls(), 'The portal is left as it is.');
+    }
+
+    #[Test]
+    public function aPortalCreatedDuringTheCallIsAdoptedAfterAnUnreadableAnswer(): void
+    {
+        $this->queueToken();
+        $this->transport->queueData(R::quota());
+        $this->transport->queueData(R::package());
+        $this->transport->queue(self::gatewayPage());
+        $this->transport->queueData(R::labels([R::TENANT_ID => 'sign.acme.test']));
+        $this->transport->queueData(R::labelCreatedAt(time(), 'Ada@ACME.test'));
+        $this->transport->queueData(R::assignment('pkg-1'));
+
+        $result = $this->service()->create($this->params());
+
+        self::assertSame('success', $result, 'The owner\'s email address matches whatever its case.');
+        self::assertSame(R::TENANT_ID, $this->link()->tenantId);
+        self::assertCount(1, $this->requestsTo('GET ' . R::LABEL), 'The portal is read to check that it fits.');
+        self::assertSame(0, $this->transport->pendingCount());
+    }
+
+    #[Test]
+    public function aPortalWithNoOwnerYetIsAdoptedWhenItWasCreatedDuringTheCall(): void
+    {
+        $this->queueToken();
+        $this->transport->queueData(R::quota());
+        $this->transport->queueData(R::package());
+        $this->transport->queue(self::gatewayPage());
+        $this->transport->queueData(R::labels([R::TENANT_ID => 'sign.acme.test']));
+        $this->transport->queueData(R::labelCreatedAt(time(), null));
+        $this->transport->queueData(R::assignment('pkg-1'));
+
+        $result = $this->service()->create($this->params());
+
+        self::assertSame('success', $result);
+        self::assertSame(R::TENANT_ID, $this->link()->tenantId);
+        self::assertContains(
+            'Sign.net: service #101 linked to the portal sign.acme.test. Its provisioning call went unanswered, and '
+            . 'this portal fits that call: it has the address the call asked for, was created after the call was '
+            . 'sent (allowing ten minutes for clock differences), and has no owner yet.',
+            WhmcsFake::activityMessages(),
+        );
+    }
+
+    #[Test]
+    public function aPortalSomeoneElseOwnsIsNotAdoptedAfterALostAnswer(): void
+    {
+        $this->queueToken();
+        $this->transport->queueData(R::quota());
+        $this->transport->queueData(R::package());
+        $this->transport->queue(new TransportException('Operation timed out', true));
+        $this->transport->queueData(R::labels([R::TENANT_ID => 'sign.acme.test']));
+        $this->transport->queueData(R::labelCreatedAt(time(), 'someone@other.test'));
+
+        $result = $this->service()->create($this->params());
+
+        self::assertSame(self::TAKEN, $result);
+        self::assertFalse($this->link()->isLinked());
+        self::assertSame(ServiceLink::ATTEMPT_FAILED, $this->link()->attemptState);
+    }
+
+    #[Test]
+    public function theNextRunAdoptsAPortalSignNetsClockPutsALittleBeforeTheCall(): void
+    {
+        $this->saveUnansweredAttempt(time());
+        $this->queueToken();
+        $this->transport->queueData(R::labels([R::TENANT_ID => 'sign.acme.test']));
+        $this->transport->queueData(R::labelCreatedAt(time() - 300));
+        $this->transport->queueData(R::assignment('pkg-1'));
+
+        $result = $this->service()->create($this->params());
+
+        self::assertSame('success', $result);
+        self::assertSame(R::TENANT_ID, $this->link()->tenantId);
+        self::assertSame([], $this->requestsTo(R::PROVISION_CALL));
+        self::assertSame(0, $this->transport->pendingCount());
+    }
+
+    #[Test]
+    public function theNextRunReportsAPortalMadeBeforeTheCallAsTakingTheHostname(): void
+    {
+        $this->saveUnansweredAttempt(time());
+        $this->queueToken();
+        $this->transport->queueData(R::labels([R::TENANT_ID => 'sign.acme.test']));
+        $this->transport->queueData(R::labelCreatedAt(time() - 900));
+
+        $result = $this->service()->create($this->params());
+
+        self::assertSame(self::TAKEN, $result);
+        self::assertFalse($this->link()->isLinked());
+        self::assertSame(ServiceLink::ATTEMPT_FAILED, $this->link()->attemptState);
+        self::assertSame([], $this->requestsTo(R::PROVISION_CALL), 'Sign.net would refuse the hostname anyway.');
+    }
+
+    #[Test]
+    public function theNextRunLeavesTheAttemptInDoubtWhenItCannotLook(): void
+    {
+        $this->saveUnansweredAttempt(time() - 60);
+        $this->queueToken();
+        $this->transport->queueError(500, 'internal_server_error');
+
+        $result = $this->service()->create($this->params());
+
+        self::assertStringStartsWith('Sign.net did not confirm that the portal was created.', $result);
+        self::assertSame(ServiceLink::ATTEMPT_UNKNOWN, $this->link()->attemptState);
+        self::assertSame($result, $this->link()->lastError);
+        self::assertSame([], $this->requestsTo(R::PROVISION_CALL));
     }
 
     #[Test]
@@ -375,24 +511,21 @@ final class ProvisionServiceTest extends ModuleTestCase
     #[Test]
     public function aTakenHostnameIsAdoptedWhenThisServicesOwnAttemptExplainsIt(): void
     {
-        $this->links->save(new ServiceLink(
-            self::SERVICE_ID,
-            $this->serverId,
-            hostname: 'sign.acme.test',
-            attemptState: ServiceLink::ATTEMPT_UNKNOWN,
-        ));
+        $this->saveUnansweredAttempt(time() - 3600);
         $this->queueToken();
         $this->transport->queueData(R::labels());
         $this->transport->queueData(R::quota());
         $this->transport->queueData(R::package());
         $this->transport->queueError(400, 'host_taken');
         $this->transport->queueData(R::labels([R::TENANT_ID => 'sign.acme.test']));
+        $this->transport->queueData(R::labelCreatedAt(time() - 3000));
         $this->transport->queueData(R::assignment('pkg-1'));
 
         $result = $this->service()->create($this->params());
 
-        self::assertSame('success', $result);
+        self::assertSame('success', $result, 'The retry keeps the time of the call that went unanswered.');
         self::assertSame(R::TENANT_ID, $this->link()->tenantId);
+        self::assertSame(0, $this->transport->pendingCount());
     }
 
     #[Test]
@@ -421,23 +554,15 @@ final class ProvisionServiceTest extends ModuleTestCase
     public function itNeverAdoptsAPortalAnotherServiceHolds(): void
     {
         $this->links->save(new ServiceLink(202, $this->serverId, R::TENANT_ID, 'other.acme.test'));
-        $this->links->save(new ServiceLink(
-            self::SERVICE_ID,
-            $this->serverId,
-            hostname: 'sign.acme.test',
-            attemptState: ServiceLink::ATTEMPT_UNKNOWN,
-        ));
+        $this->saveUnansweredAttempt(time() - 60);
         $this->queueToken();
-        $this->transport->queueData(R::labels([R::TENANT_ID => 'sign.acme.test']));
-        $this->transport->queueData(R::quota());
-        $this->transport->queueData(R::package());
-        $this->transport->queueError(400, 'host_taken');
         $this->transport->queueData(R::labels([R::TENANT_ID => 'sign.acme.test']));
 
         $result = $this->service()->create($this->params());
 
-        self::assertStringContainsString('already in use', $result);
+        self::assertSame(self::TAKEN, $result);
         self::assertFalse($this->link()->isLinked());
+        self::assertSame([...self::FIRST_CALLS, 'GET ' . R::LABELS], $this->calls());
     }
 
     #[Test]
@@ -763,6 +888,29 @@ final class ProvisionServiceTest extends ModuleTestCase
         $this->transport->queueData(R::quota());
         $this->transport->queueData(R::package());
         $this->transport->queueData(R::provisioned(R::assigned()));
+    }
+
+    /**
+     * Service 101's earlier provisioning call for sign.acme.test, sent at $attemptAt (Unix seconds),
+     * whose answer never arrived.
+     */
+    private function saveUnansweredAttempt(int $attemptAt): void
+    {
+        $this->links->save(new ServiceLink(
+            self::SERVICE_ID,
+            $this->serverId,
+            hostname: 'sign.acme.test',
+            attemptState: ServiceLink::ATTEMPT_UNKNOWN,
+            attemptAt: $attemptAt,
+        ));
+    }
+
+    /**
+     * A gateway's own error page in place of Sign.net's answer.
+     */
+    private static function gatewayPage(): Response
+    {
+        return new Response(502, ['Content-Type' => 'text/html'], '<html><body>Bad Gateway</body></html>');
     }
 
     private function service(): ProvisionService

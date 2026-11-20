@@ -166,7 +166,10 @@ do. If Sign.net itself suspended a portal, Unsuspend explains that only Sign.net
   Sign.net is logged, with the key and tokens masked. A failure's message ends with “(request <id>)”,
   and the same id marks that call in the module log.
 - **Retrying Create is always safe.** If Sign.net's answer was lost, the next run looks for the
-  portal before trying again, so it never makes a second one.
+  portal before trying again, so it never makes a second one. It links a portal only if it fits the
+  lost call: on the address the call asked for, created since the call, and owned by the client or by
+  nobody yet. Any other portal on that address is reported as already in use; if it is yours, link
+  it with **Link existing portal**.
 - **"The API key lacks a scope"**: create a key with all three scopes and paste it into the server's
   Password field.
 - **Token minting is paused**: Sign.net allows five tokens per fifteen minutes per address, and the

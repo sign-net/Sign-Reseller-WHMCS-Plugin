@@ -259,6 +259,29 @@ final class SignNetResponses
     }
 
     /**
+     * One active private label created at $createdAt (Unix seconds), owned by $ownerEmail or by
+     * nobody yet: what the provisioning call of ModuleTestCase's order makes.
+     *
+     * @return array<string, mixed>
+     */
+    public static function labelCreatedAt(int $createdAt, ?string $ownerEmail = 'ada@acme.test'): array
+    {
+        return self::label([
+            'createdAt' => $createdAt * 1000,
+            'status' => 'Active',
+            'suspendedAt' => null,
+            'suspendedBy' => null,
+            'suspendReason' => null,
+            'owner' => $ownerEmail === null ? null : [
+                'userId' => 'u-owner',
+                'email' => $ownerEmail,
+                'firstName' => 'Ada',
+                'lastName' => 'Lovelace',
+            ],
+        ]);
+    }
+
+    /**
      * A refusal in the token endpoint's own shape, which the console's envelope did not replace.
      *
      * @return array<string, mixed>
