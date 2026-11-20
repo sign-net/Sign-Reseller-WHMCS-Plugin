@@ -25,7 +25,6 @@ final class CustomActions
     /** What "Check again" answers within a minute of the last attempt. */
     public const CHECK_LATER = 'You can check again in a minute.';
 
-    private const TENANT_ID_PATTERN = '/^[0-9a-f]{32}$/D';
     private const DNS_CHECK_INTERVAL_SECONDS = 60;
 
     public function __construct(
@@ -132,14 +131,15 @@ final class CustomActions
             return sprintf('That portal is linked to service #%d.', $holder->serviceId);
         }
         $owner = $this->client->getPrivateLabel($label->tenantId)->owner;
-        $link = $this->links->save($link->withPortalSuspension($label->isSuspended())->with([
+        $link = $link->withPortalSuspension($label->isSuspended())->with([
             'tenantId' => $label->tenantId,
             'hostname' => $label->primaryHost,
             'attemptState' => ServiceLink::ATTEMPT_NONE,
             'attemptAt' => null,
             'lastError' => null,
-        ]));
+        ]);
         WhmcsServices::showPortal($link);
+        $this->links->save($link);
         logActivity(sprintf(
             'Sign.net: service #%d linked to the existing portal %s, %s.',
             $serviceId,
@@ -242,7 +242,7 @@ final class CustomActions
     private function findPortal(array $params): ?PrivateLabelSummary
     {
         $username = strtolower(trim((string) ($params['username'] ?? '')));
-        $tenantId = preg_match(self::TENANT_ID_PATTERN, $username) === 1 ? $username : null;
+        $tenantId = preg_match(WhmcsServices::TENANT_ID_PATTERN, $username) === 1 ? $username : null;
         $domain = trim((string) ($params['domain'] ?? ''));
         $hostname = $domain !== '' && HostnameNormalizer::isValid(strtolower($domain)) ? strtolower($domain) : null;
         foreach ($this->client->listPrivateLabels() as $label) {

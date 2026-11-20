@@ -12,6 +12,7 @@ use SignNet\Tests\Unit\ResellerApi\ApiFixtures;
 use SignNet\Whmcs\Db\Cache;
 use SignNet\Whmcs\Db\ServiceLink;
 use SignNet\Whmcs\Db\ServiceRepository;
+use WHMCS\Database\Capsule;
 
 /**
  * The module as WHMCS drives it: through its signnet_* functions.
@@ -155,6 +156,28 @@ final class ServerModuleTest extends ModuleTestCase
 
         self::assertSame('success', signnet_refresh($this->params()));
         self::assertSame(0, $this->links->find(self::SERVICE_ID)?->orderId);
+    }
+
+    #[Test]
+    public function createAccountKeepsATenantIdNotInSignNetsFormOffTheServiceAndMakesNoSecondPortal(): void
+    {
+        $this->insertService();
+        $this->queueToken();
+        $this->transport->queueData(R::quota());
+        $this->transport->queueData(R::package());
+        $this->transport->queueData(['tenantId' => strtoupper(R::TENANT_ID)] + R::provisioned(R::assigned()));
+        $refusal = 'Sign.net gave this portal a tenant id or address that is not valid, so the service\'s Username '
+            . 'and Domain were left as they were. Contact Sign.net.';
+
+        $first = signnet_CreateAccount($this->params());
+        $retried = signnet_CreateAccount($this->params());
+
+        self::assertSame([$refusal, $refusal], [$first, $retried]);
+        self::assertSame(1, count(array_keys($this->calls(), R::PROVISION_CALL, true)));
+        self::assertSame(['', ''], [
+            Capsule::table('tblhosting')->where('id', self::SERVICE_ID)->value('username'),
+            Capsule::table('tblhosting')->where('id', self::SERVICE_ID)->value('domain'),
+        ]);
     }
 
     #[Test]
@@ -534,6 +557,27 @@ final class ServerModuleTest extends ModuleTestCase
 
         self::assertStringStartsWith('Sign.net could not complete the request (HTTP 500).', $result);
         self::assertNull($this->links->find(self::SERVICE_ID));
+    }
+
+    #[Test]
+    public function linkExistingPortalLeavesTheServiceAloneWhenSignNetGivesAnAddressThatIsNotValid(): void
+    {
+        $this->insertService();
+        $this->queueToken();
+        $this->transport->queueData(R::labels([R::TENANT_ID => '<b>sign.acme.test</b>']));
+        $this->transport->queueData(R::label());
+
+        self::assertSame(
+            'Sign.net gave this portal a tenant id or address that is not valid, so the service\'s Username and '
+            . 'Domain were left as they were. Contact Sign.net.',
+            signnet_linkPortal($this->params(['username' => R::TENANT_ID])),
+        );
+        self::assertNull($this->links->find(self::SERVICE_ID), 'The service manages no portal.');
+        self::assertSame(['', ''], [
+            Capsule::table('tblhosting')->where('id', self::SERVICE_ID)->value('username'),
+            Capsule::table('tblhosting')->where('id', self::SERVICE_ID)->value('domain'),
+        ]);
+        self::assertSame([], WhmcsFake::activityMessages());
     }
 
     #[Test]
