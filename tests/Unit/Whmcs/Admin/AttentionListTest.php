@@ -122,10 +122,24 @@ final class AttentionListTest extends DatabaseTestCase
             '#116 Suspended in Sign.net, Active in WHMCS',
         ], self::summaries($items));
         self::assertSame(
-            ['The portal was suspended outside WHMCS, so WHMCS does not lift that suspension when the client pays. '
-                . 'Lift it in the Sign.net console, or unsuspend the service from its page in WHMCS.'],
+            ['The portal holds a suspension made outside WHMCS, so WHMCS does not lift it when the client pays. If '
+                . 'you made it in the Sign.net console, lift it there, or unsuspend the service from its page in '
+                . 'WHMCS. If Sign.net made it, only Sign.net can lift it.'],
             $items[0]->details,
         );
+    }
+
+    #[Test]
+    public function itLeavesOutASuspensionMadeOutsideWhmcsOnceSignNetListsThePortalActive(): void
+    {
+        $outside = ['state' => ServiceLink::STATE_SUSPENDED, 'suspendedOutsideAt' => 1_900_000_000];
+        $this->service(120, 'Suspended', self::live('t-120', $outside));
+
+        $whileListed = (new AttentionList())->build([self::label('t-120', TenantStatus::ACTIVE)], []);
+        $unlisted = (new AttentionList())->build(null, []);
+
+        self::assertSame(['#120 Suspended in WHMCS, active in Sign.net'], self::summaries($whileListed));
+        self::assertSame(['#120 Suspended outside WHMCS'], self::summaries($unlisted), 'Without the list, it stays.');
     }
 
     #[Test]

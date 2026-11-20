@@ -74,25 +74,29 @@ final class AttentionList
             self::provisioning($link, $service),
             self::domainNotAttached($link, $service),
             self::statusMismatch($link, $service, $statuses),
-            self::suspendedOutside($link, $service),
+            self::suspendedOutside($link, $service, $statuses),
         ]));
     }
 
     /**
      * A suspended service whose portal holds a suspension WHMCS did not make, which WHMCS's automatic
-     * unsuspension therefore leaves in place.
+     * unsuspension therefore leaves in place. Once Sign.net's list shows the portal active, that
+     * suspension was lifted, and the status comparison says so instead.
      *
      * @param Service $service
+     * @param Statuses|null $statuses
      */
-    private static function suspendedOutside(ServiceLink $link, array $service): ?AttentionItem
+    private static function suspendedOutside(ServiceLink $link, array $service, ?array $statuses): ?AttentionItem
     {
-        if ($link->suspendedOutsideAt === null || $service['status'] !== 'Suspended') {
+        $isLifted = $statuses !== null && ($statuses[(string) $link->tenantId] ?? null) === TenantStatus::ACTIVE;
+        if ($link->suspendedOutsideAt === null || $service['status'] !== 'Suspended' || $isLifted) {
             return null;
         }
 
         return self::item($link, $service, 'Suspended outside WHMCS', [
-            'The portal was suspended outside WHMCS, so WHMCS does not lift that suspension when the client pays. '
-                . 'Lift it in the Sign.net console, or unsuspend the service from its page in WHMCS.',
+            'The portal holds a suspension made outside WHMCS, so WHMCS does not lift it when the client pays. If you '
+                . 'made it in the Sign.net console, lift it there, or unsuspend the service from its page in WHMCS. '
+                . 'If Sign.net made it, only Sign.net can lift it.',
         ]);
     }
 

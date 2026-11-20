@@ -513,6 +513,8 @@ D3 and D4 need Sign.net to act on staging while you test, so arrange a time with
   console still says “Suspended by sign.net”: your suspension never takes over Sign.net's.
 - [ ] Unsuspend is refused: “Suspended by Sign.net: QA platform test. Only Sign.net can lift this suspension;
   contact Sign.net support.”
+- [ ] After step 3, the addon's Dashboard lists “Suspended outside WHMCS”, saying that only Sign.net can lift a
+  suspension Sign.net made.
 
 **D4 · high · Sign.net lifts it**
 
@@ -551,9 +553,9 @@ the way it does when a client pays an overdue invoice.
 
 - [ ] Step 2 succeeds, and the activity log has “Sign.net: portal p01.qa1-dns.example.com was already suspended
   outside WHMCS, and stays so for service #<id>. WHMCS does not lift that suspension on its own.”
-- [ ] In step 3, “Needs attention” lists “Suspended outside WHMCS”, with “The portal was suspended outside WHMCS,
-  so WHMCS does not lift that suspension when the client pays. Lift it in the Sign.net console, or unsuspend the
-  service from its page in WHMCS.”
+- [ ] In step 3, “Needs attention” lists “Suspended outside WHMCS”, with “The portal holds a suspension made outside
+  WHMCS, so WHMCS does not lift it when the client pays. If you made it in the Sign.net console, lift it there, or
+  unsuspend the service from its page in WHMCS. If Sign.net made it, only Sign.net can lift it.”
 - [ ] After step 4:
   - the invoice is paid, but the service is still Suspended;
   - WHMCS's module queue lists the failed Unsuspend, answered “Not unsuspended: the portal was suspended outside
